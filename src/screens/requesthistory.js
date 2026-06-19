@@ -36,48 +36,40 @@ function cmToFeetInches(cm) {
 }
 
 // ─── Screen ──────────────────────────────────────────────────────────────────
-export default function MyLikesScreen({ navigation }) {
-    const [likedList, setLikedList] = useState([]);
+export default function RequestHistoryScreen({ navigation }) {
+    const [historyList, setHistoryList] = useState([]);
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
-        fetchMyLikes();
+        fetchHistory();
     }, []);
 
-    const fetchMyLikes = async () => {
+    const fetchHistory = async () => {
         try {
-            // Get logged in user's profile ID from session/storage
-            const profileId = await AsyncStorage.getItem('user_id');
-          
-            if (!profileId) {
+            const userId = await AsyncStorage.getItem('matrimonyUserId');
+            if (!userId) {
                 setLoading(false);
                 return;
             }
 
-            const response = await fetch(`https://matrimony.gmworld.net/api/likes_by_profile_id/${profileId}`, {
+            const response = await fetch(`https://matrimony.gmworld.net/api/my_connect/${userId}`, {
                 method: 'GET',
                 headers: {
-                    'Content-Type': 'application/json',
                     'Accept': 'application/json'
                 }
             });
 
             const data = await response.json();
-
+            
             if (data.status) {
-                // Only show entries that are actually liked (defensive, in case API ever returns unliked rows)
-                const liked = (data.liked_users || []).filter(item => item.is_liked == 1 || item.is_liked === true);
-
-                // Sort by most recent liked_at timestamp
-                const sorted = liked.sort((a, b) => new Date(b.liked_at) - new Date(a.liked_at));
-
-                setLikedList(sorted);
+                // If using 'liked_users' array from your JSON
+                setHistoryList(data.liked_users || data.data || []);
             } else {
                 console.warn(data.message);
             }
         } catch (error) {
-            console.error("Error fetching my likes:", error);
-            Alert.alert("Error", "Could not load profiles you liked.");
+            console.error("Error fetching request history:", error);
+            Alert.alert("Error", "Could not load your request history.");
         } finally {
             setLoading(false);
         }
@@ -92,7 +84,7 @@ export default function MyLikesScreen({ navigation }) {
                 <TouchableOpacity style={styles.navBtn} onPress={() => navigation?.goBack()}>
                     <Text style={styles.navMenuIcon}>←</Text>
                 </TouchableOpacity>
-                <Text style={styles.headerTitle}>Profiles I Liked</Text>
+                <Text style={styles.headerTitle}>Request History</Text>
                 <TouchableOpacity style={styles.navBtn}>
                     <Text style={styles.navBellIcon}>🔔</Text>
                     <View style={styles.redDotBadge} />
@@ -102,49 +94,69 @@ export default function MyLikesScreen({ navigation }) {
             {loading ? (
                 <View style={styles.centerLoading}>
                     <ActivityIndicator size="large" color="#D4AF37" />
-                    <Text style={styles.loadingText}>Loading profiles...</Text>
+                    <Text style={styles.loadingText}>Loading history...</Text>
                 </View>
             ) : (
                 <ScrollView contentContainerStyle={styles.scrollContainer} showsVerticalScrollIndicator={false}>
                     {/* Statistics Total Pill */}
                     <View style={styles.chipContainer}>
                         <View style={styles.savedChip}>
-                            <Text style={styles.chipText}>🔖 You Liked {likedList.length} Profile{likedList.length !== 1 && 's'}</Text>
+                            <Text style={styles.chipText}>🗂️ {historyList.length} Total Request{historyList.length !== 1 && 's'}</Text>
                         </View>
                     </View>
 
                     {/* Empty State */}
-                    {likedList.length === 0 && (
+                    {historyList.length === 0 && (
                         <View style={styles.emptyContainer}>
-                            <Text style={styles.emptyIcon}>🔍</Text>
-                            <Text style={styles.emptyText}>You haven't liked anyone yet. Start exploring!</Text>
+                            <Text style={styles.emptyIcon}>🕰️</Text>
+                            <Text style={styles.emptyText}>You haven't sent any requests yet.</Text>
                         </View>
                     )}
 
                     {/* Profile Directories Iteration */}
-                    {likedList.map((profile, index) => {
+                    {historyList.map((profile, index) => {
                         const age = calcAge(profile.date_of_birth);
                         const height = cmToFeetInches(profile.height);
-                        const isVerified = profile.status === 'Approved';
                         const photoUri = profile.profile_photo || PLACEHOLDER_IMAGE;
+                        
+                        // 1. PROFILE VERIFICATION STATUS (Approved by Admin)
+                        const profileStatus = (profile.status || '').toLowerCase();
+                        const isVerified = profileStatus === 'approved' || profileStatus === 'active';
+
+                        // 2. CONNECTION REQUEST STATUS (Accepted/Rejected/Pending by User)
+                        // This uses the 'request_status' we aliased in Laravel
+                        const connectionStatus = (profile.request_status || 'pending').toLowerCase();
+                        
+                        let cardHighlightColor = '#F39C12'; // Default Orange (Pending)
+                        let badgeColor = 'rgba(243, 156, 18, 0.9)';
+                        let statusText = '⏳ PENDING';
+
+                        if (connectionStatus === 'accepted') {
+                            cardHighlightColor = '#2ECC71'; // Green
+                            badgeColor = 'rgba(46, 204, 113, 0.9)';
+                            statusText = '✓ ACCEPTED';
+                        } else if (connectionStatus === 'rejected') {
+                            cardHighlightColor = '#E74C3C'; // Red
+                            badgeColor = 'rgba(231, 76, 60, 0.9)';
+                            statusText = '✕ REJECTED';
+                        }
 
                         return (
-                            <View key={`${profile.id}-${index}`} style={styles.profileCard}>
+                            <View 
+                                key={profile.id ? `${profile.id}-${index}` : index.toString()} 
+                                style={[
+                                    styles.profileCard, 
+                                    // Highlight the card border based on CONNECTION status
+                                    { borderColor: cardHighlightColor, borderWidth: 1.5 }
+                                ]}
+                            >
                                 {/* Image wrapper frame */}
                                 <View style={styles.imageWrapper}>
                                     <Image source={{ uri: photoUri }} style={styles.profileImage} />
 
-                                    {/* Active state indicator */}
-                                    {isVerified && (
-                                        <View style={styles.onlineBadge}>
-                                            <View style={styles.onlineDot} />
-                                            <Text style={styles.onlineText}>ACTIVE</Text>
-                                        </View>
-                                    )}
-
-                                    {/* Floating Save/Heart Selector - Highlighted red because you liked them */}
-                                    <View style={styles.heartButton}>
-                                        <Text style={[styles.heartIcon, { color: '#E74C3C' }]}>❤️</Text>
+                                    {/* Connection Status Badge */}
+                                    <View style={[styles.statusBadge, { backgroundColor: badgeColor }]}>
+                                        <Text style={styles.statusText}>{statusText}</Text>
                                     </View>
                                 </View>
 
@@ -152,6 +164,8 @@ export default function MyLikesScreen({ navigation }) {
                                 <View style={styles.detailsContainer}>
                                     <View style={styles.nameRow}>
                                         <Text style={styles.profileName}>{profile.full_name || 'User'}</Text>
+                                        
+                                        {/* Profile Verified Badge */}
                                         {isVerified && (
                                             <View style={styles.verifiedBadge}>
                                                 <Text style={styles.verifiedText}>✓ VERIFIED</Text>
@@ -169,19 +183,18 @@ export default function MyLikesScreen({ navigation }) {
                                         <View style={styles.gridItem}><Text style={styles.metaText}>🗣️ {profile.mother_tongue || 'Not specified'}</Text></View>
                                     </View>
 
-                                    {/* Lower Secondary Component Action Buttons Row */}
+                                    {/* Full Width View Profile Button */}
                                     <View style={styles.actionRow}>
                                         <TouchableOpacity 
-                                            style={styles.outlineBtn}
+                                            style={[styles.outlineBtn, { width: '100%', borderColor: cardHighlightColor }]}
                                             onPress={() => navigation.navigate('ViewProfile', { 
                                                 profileId: profile.id,
                                                 userid: profile.user_id 
                                             })}
                                         >
-                                            <Text style={styles.outlineBtnText}>VIEW PROFILE</Text>
-                                        </TouchableOpacity>
-                                        <TouchableOpacity style={styles.filledBtn}>
-                                            <Text style={styles.filledBtnText}>➤  SEND MESSAGE</Text>
+                                            <Text style={[styles.outlineBtnText, { color: cardHighlightColor === '#F39C12' ? '#050914' : cardHighlightColor }]}>
+                                                VIEW PROFILE
+                                            </Text>
                                         </TouchableOpacity>
                                     </View>
                                 </View>
@@ -240,45 +253,30 @@ const styles = StyleSheet.create({
         borderRadius: 20,
     },
     chipText: { color: '#FFFFFF', fontSize: 13, fontWeight: '700' },
+    
     profileCard: {
         backgroundColor: '#FFFFFF',
         borderRadius: 16,
         overflow: 'hidden',
         marginBottom: 20,
-        borderWidth: 1,
-        borderColor: '#EAEAEA',
+        borderColor: '#EAEAEA', 
     },
     imageWrapper: { position: 'relative', width: '100%', height: 240 },
     profileImage: { width: '100%', height: '100%', resizeMode: 'cover' },
-    onlineBadge: {
+    
+    // Status Badges
+    statusBadge: {
         position: 'absolute',
         bottom: 12,
         left: 12,
-        backgroundColor: 'rgba(0,0,0,0.6)',
+        paddingHorizontal: 10,
+        paddingVertical: 5,
+        borderRadius: 12,
         flexDirection: 'row',
         alignItems: 'center',
-        paddingHorizontal: 8,
-        paddingVertical: 4,
-        borderRadius: 12,
     },
-    onlineDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#2ecc71', marginRight: 6 },
-    onlineText: { color: '#FFFFFF', fontSize: 10, fontWeight: '700', letterSpacing: 0.5 },
-    heartButton: {
-        position: 'absolute',
-        top: 12,
-        right: 12,
-        backgroundColor: '#FFFFFF',
-        width: 36,
-        height: 36,
-        borderRadius: 18,
-        justifyContent: 'center',
-        alignItems: 'center',
-        shadowColor: '#000',
-        shadowOpacity: 0.15,
-        shadowRadius: 4,
-        elevation: 3,
-    },
-    heartIcon: { fontSize: 16 },
+    statusText: { fontSize: 11, fontWeight: '800', letterSpacing: 0.5, color: '#FFFFFF' },
+
     detailsContainer: { padding: 16 },
     nameRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 4 },
     profileName: { fontSize: 20, fontWeight: 'bold', color: '#050914', marginRight: 8 },
@@ -301,22 +299,13 @@ const styles = StyleSheet.create({
     },
     gridItem: { width: '48%' },
     metaText: { fontSize: 13, color: '#555555' },
-    actionRow: { flexDirection: 'row', justifyContent: 'space-between' },
+    actionRow: { flexDirection: 'row', justifyContent: 'center' },
     outlineBtn: {
-        width: '47%',
-        borderWidth: 1,
-        borderColor: '#050914',
+        borderWidth: 1.5,
         borderRadius: 8,
         paddingVertical: 12,
         alignItems: 'center',
+        backgroundColor: '#FAFAFA'
     },
-    outlineBtnText: { color: '#050914', fontSize: 13, fontWeight: '700' },
-    filledBtn: {
-        width: '47%',
-        backgroundColor: '#1E2213',
-        borderRadius: 8,
-        paddingVertical: 12,
-        alignItems: 'center',
-    },
-    filledBtnText: { color: '#FFFFFF', fontSize: 13, fontWeight: '700' },
+    outlineBtnText: { fontSize: 14, fontWeight: '800' },
 });

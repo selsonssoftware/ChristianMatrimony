@@ -4,7 +4,7 @@ import { saveProfileData } from '../utils/profileStorage';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
     View, Text, TextInput, TouchableOpacity, ScrollView,
-    StyleSheet, SafeAreaView, StatusBar, Platform,Alert,
+    StyleSheet, SafeAreaView, StatusBar, Platform, Alert,
 } from 'react-native';
 
 const EDUCATIONS = [
@@ -33,6 +33,7 @@ export default function EducationCareerScreen({ navigation }) {
     };
 
     const handleContinue = async () => {
+        if (!validate()) return;
         const userId = await AsyncStorage.getItem('user_id');
 
         if (!userId) {
@@ -41,18 +42,26 @@ export default function EducationCareerScreen({ navigation }) {
         }
 
         await saveProfileData({
-            user_id: userId,   // add this
+            user_id: userId,
 
-            education,
+            highest_education: education,
             college_university: college,
-            occupation,
+            occupation: occupation,
             company_name: company,
             annual_income: income,
         });
 
         navigation.navigate('HonoringRoots');
     };
-    const handleSkip = () => navigation?.navigate('HonoringRoots');
+    const handleSkip = async () => {
+        const userId = await AsyncStorage.getItem('user_id');
+
+        await saveProfileData({
+            user_id: userId,
+        });
+
+        navigation.navigate('HonoringRoots');
+    };
 
     return (
         <SafeAreaView style={[styles.safe, { paddingTop: insets.top }]}>

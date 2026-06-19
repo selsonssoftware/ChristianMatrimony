@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { saveProfileData } from '../utils/profileStorage';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+
 import {
     View, Text, TextInput, TouchableOpacity, ScrollView,
     StyleSheet, SafeAreaView, StatusBar, Alert, Platform,
@@ -28,6 +29,7 @@ export default function PersonalDetailsScreen({ navigation }) {
     const [maritalStatus, setMaritalStatus] = useState('');
     const [motherTongue, setMotherTongue] = useState([]);
     const [location, setLocation] = useState('');
+
     const [showCommunityDrop, setShowCommunityDrop] = useState(false);
     const [showWeightDrop, setShowWeightDrop] = useState(false);
     const [showHeightDrop, setShowHeightDrop] = useState(false);
@@ -65,14 +67,13 @@ export default function PersonalDetailsScreen({ navigation }) {
         }
 
         await saveProfileData({
-            user_id: userId,  
-
+            user_id: userId,
             full_name: fullName,
             reference_name: reference,
             date_of_birth: dob,
-            community: community,
-            weight: weight,
-            height: height,
+            community,
+            weight,
+            height,
             marital_status: maritalStatus,
             mother_tongue: motherTongue,
             current_location: location,
@@ -111,17 +112,7 @@ export default function PersonalDetailsScreen({ navigation }) {
                 keyboardShouldPersistTaps="handled"
                 showsVerticalScrollIndicator={false}
             >
-                {/* Photo Upload */}
-                <View style={styles.photoSection}>
-                    <TouchableOpacity style={styles.photoCircle}>
-                        <Text style={styles.photoIcon}>📷</Text>
-                        <Text style={styles.photoText}>Add Photo</Text>
-                        <View style={styles.editBadge}>
-                            <Text style={styles.editBadgeText}>✏️</Text>
-                        </View>
-                    </TouchableOpacity>
-                    <Text style={styles.photoHint}>A clear face photo helps in getting better matches.</Text>
-                </View>
+
 
                 {/* Full Name */}
                 <Text style={styles.label}>Full Name <Text style={styles.required}>*</Text></Text>
@@ -402,6 +393,11 @@ const styles = StyleSheet.create({
     dropdownPlaceholder: { color: '#bbb', fontSize: 14 },
     dropdownValue: { color: '#222', fontSize: 14 },
     dropdownArrow: { color: '#888', fontSize: 11 },
+    profilePreview: {
+        width: 86,
+        height: 86,
+        borderRadius: 43,
+    },
     dropdownList: {
         borderWidth: 1, borderColor: '#E0D8CC', borderRadius: 10,
         backgroundColor: '#fff', marginTop: 4, zIndex: 99,

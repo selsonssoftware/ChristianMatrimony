@@ -36,45 +36,72 @@ function cmToFeetInches(cm) {
 }
 
 // ─── Screen ──────────────────────────────────────────────────────────────────
-export default function ShortlistScreen({ navigation }) {
-    const [savedList, setSavedList] = useState([]);
+export default function ReceiveHistoryScreen({ navigation }) {
+    const [historyList, setHistoryList] = useState([]);
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
-        fetchShortlist();
+        fetchHistory();
     }, []);
 
-    const fetchShortlist = async () => {
+    const fetchHistory = async () => {
         try {
-            // Get logged in user ID from session/storage
             const userId = await AsyncStorage.getItem('matrimonyUserId');
-
             if (!userId) {
                 setLoading(false);
                 return;
             }
 
-            // Endpoint returns: { status, profile_id, profile_user_id, profile_name, total_likes, liked_users: [...] }
-            const response = await fetch(`https://matrimony.gmworld.net/api/likes_by_who/${userId}`, {
+            const response = await fetch(`https://matrimony.gmworld.net/api/connect_receive/${userId}`, {
                 method: 'GET',
                 headers: {
-                    'Content-Type': 'application/json',
                     'Accept': 'application/json'
                 }
             });
 
             const data = await response.json();
-
+            
             if (data.status) {
-                setSavedList(data.liked_users || []);
+                setHistoryList(data.liked_users || data.data || []);
             } else {
                 console.warn(data.message);
             }
         } catch (error) {
-            console.error("Error fetching shortlist:", error);
-            Alert.alert("Error", "Could not load saved profiles.");
+            console.error("Error fetching request history:", error);
+            Alert.alert("Error", "Could not load your request history.");
         } finally {
             setLoading(false);
+        }
+    };
+
+    // ─── Update Status API ───
+    const handleUpdateStatus = async (senderId, receiverId, newStatus) => {
+        try {
+            const response = await fetch('https://matrimony.gmworld.net/api/update_connect_status', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json'
+                },
+                body: JSON.stringify({
+                    sender_user_id: senderId,     // Using 'like_id' from your JSON
+                    receiver_user_id: receiverId, // Using 'liked_id' from your JSON
+                    status: newStatus             // 'accepted' or 'rejected'
+                })
+            });
+
+            const data = await response.json();
+            
+            if (data.status) {
+                Alert.alert('Success', `Request ${newStatus} successfully!`);
+                // Re-fetch the list to instantly update the UI highlights and badges
+                fetchHistory();
+            } else {
+                Alert.alert('Failed', data.message || 'Could not update status.');
+            }
+        } catch (error) {
+            console.error("Error updating status:", error);
+            Alert.alert("Error", "Something went wrong while updating status.");
         }
     };
 
@@ -87,7 +114,7 @@ export default function ShortlistScreen({ navigation }) {
                 <TouchableOpacity style={styles.navBtn} onPress={() => navigation?.goBack()}>
                     <Text style={styles.navMenuIcon}>←</Text>
                 </TouchableOpacity>
-                <Text style={styles.headerTitle}>Who Liked Me</Text>
+                <Text style={styles.headerTitle}>Receive History</Text>
                 <TouchableOpacity style={styles.navBtn}>
                     <Text style={styles.navBellIcon}>🔔</Text>
                     <View style={styles.redDotBadge} />
@@ -97,58 +124,77 @@ export default function ShortlistScreen({ navigation }) {
             {loading ? (
                 <View style={styles.centerLoading}>
                     <ActivityIndicator size="large" color="#D4AF37" />
-                    <Text style={styles.loadingText}>Finding matches...</Text>
+                    <Text style={styles.loadingText}>Loading history...</Text>
                 </View>
             ) : (
                 <ScrollView contentContainerStyle={styles.scrollContainer} showsVerticalScrollIndicator={false}>
                     {/* Statistics Total Pill */}
                     <View style={styles.chipContainer}>
                         <View style={styles.savedChip}>
-                            <Text style={styles.chipText}>🔖 {savedList.length} Profile{savedList.length !== 1 && 's'} Liked You</Text>
+                            <Text style={styles.chipText}>🗂️ {historyList.length} Total Request{historyList.length !== 1 && 's'}</Text>
                         </View>
                     </View>
 
                     {/* Empty State */}
-                    {savedList.length === 0 && (
+                    {historyList.length === 0 && (
                         <View style={styles.emptyContainer}>
-                            <Text style={styles.emptyIcon}>💔</Text>
-                            <Text style={styles.emptyText}>No likes yet. Don't worry, keep exploring!</Text>
+                            <Text style={styles.emptyIcon}>🕰️</Text>
+                            <Text style={styles.emptyText}>You haven't received any requests yet.</Text>
                         </View>
                     )}
 
                     {/* Profile Directories Iteration */}
-                    {savedList.map(profile => {
+                    {historyList.map((profile, index) => {
                         const age = calcAge(profile.date_of_birth);
                         const height = cmToFeetInches(profile.height);
-                        const isVerified = profile.status === 'Approved' || profile.status === 'Active';
                         const photoUri = profile.profile_photo || PLACEHOLDER_IMAGE;
-                        // like_id is the unique key here since profile.id can repeat across calls
-                        const itemKey = profile.like_id || profile.id || profile.user_id;
+                        
+                        // 1. PROFILE VERIFICATION STATUS (From 'status')
+                        const profileStatus = (profile.status || '').toLowerCase();
+                        const isVerified = profileStatus === 'approved' || profileStatus === 'active';
+
+                        // 2. CONNECTION REQUEST STATUS (From 'profile_status' in your JSON)
+                        const connectionStatus = (profile.profile_status || 'pending').toLowerCase();
+                        
+                        let cardHighlightColor = '#F39C12'; // Default Orange (Pending)
+                        let badgeColor = 'rgba(243, 156, 18, 0.9)';
+                        let statusText = '⏳ PENDING';
+
+                        if (connectionStatus === 'accepted') {
+                            cardHighlightColor = '#2ECC71'; // Green
+                            badgeColor = 'rgba(46, 204, 113, 0.9)';
+                            statusText = '✓ ACCEPTED';
+                        } else if (connectionStatus === 'rejected') {
+                            cardHighlightColor = '#E74C3C'; // Red
+                            badgeColor = 'rgba(231, 76, 60, 0.9)';
+                            statusText = '✕ REJECTED';
+                        }
 
                         return (
-                            <View key={itemKey} style={styles.profileCard}>
+                            <View 
+                                key={profile.id ? `${profile.id}-${index}` : index.toString()} 
+                                style={[
+                                    styles.profileCard, 
+                                    // Highlight the card border based on CONNECTION status
+                                    { borderColor: cardHighlightColor, borderWidth: 1.5 }
+                                ]}
+                            >
                                 {/* Image wrapper frame */}
                                 <View style={styles.imageWrapper}>
                                     <Image source={{ uri: photoUri }} style={styles.profileImage} />
 
-                                    {/* Active state indicator */}
-                                    {isVerified && (
-                                        <View style={styles.onlineBadge}>
-                                            <View style={styles.onlineDot} />
-                                            <Text style={styles.onlineText}>ACTIVE</Text>
-                                        </View>
-                                    )}
-
-                                    {/* Floating Save/Heart Selector */}
-                                    <TouchableOpacity style={styles.heartButton}>
-                                        <Text style={styles.heartIcon}>❤️</Text>
-                                    </TouchableOpacity>
+                                    {/* Connection Status Badge */}
+                                    <View style={[styles.statusBadge, { backgroundColor: badgeColor }]}>
+                                        <Text style={styles.statusText}>{statusText}</Text>
+                                    </View>
                                 </View>
 
                                 {/* Summary Identifiers Body */}
                                 <View style={styles.detailsContainer}>
                                     <View style={styles.nameRow}>
                                         <Text style={styles.profileName}>{profile.full_name || 'User'}</Text>
+                                        
+                                        {/* Profile Verified Badge */}
                                         {isVerified && (
                                             <View style={styles.verifiedBadge}>
                                                 <Text style={styles.verifiedText}>✓ VERIFIED</Text>
@@ -166,39 +212,58 @@ export default function ShortlistScreen({ navigation }) {
                                         <View style={styles.gridItem}><Text style={styles.metaText}>🗣️ {profile.mother_tongue || 'Not specified'}</Text></View>
                                     </View>
 
-                                    {/* Lower Secondary Component Action Buttons Row */}
-                                    <View style={styles.actionRow}>
-                                        <TouchableOpacity
-                                            style={styles.outlineBtn}
-                                            onPress={() => navigation.navigate('ViewProfile', {
-                                                profileId: profile.id || profile.id,
-                                                userid: profile.user_id
-                                            })}
-                                        >
-                                            <Text style={styles.outlineBtnText}>VIEW PROFILE</Text>
-                                        </TouchableOpacity>
-                                        <TouchableOpacity style={styles.filledBtn}>
-                                            <Text style={styles.filledBtnText}>➤  SEND MESSAGE</Text>
-                                        </TouchableOpacity>
-                                    </View>
+                                    {/* Action Buttons Section */}
+                                    {connectionStatus === 'pending' ? (
+                                        // ── PENDING STATE: Show Accept/Reject Buttons ──
+                                        <View style={styles.actionColumn}>
+                                            <TouchableOpacity 
+                                                style={[styles.outlineBtn, { width: '100%', borderColor: '#050914', marginBottom: 10 }]}
+                                                onPress={() => navigation.navigate('ViewProfile', { 
+                                                    profileId: profile.user_id,
+                                                    userid: profile.user_id 
+                                                })}
+                                            >
+                                                <Text style={[styles.outlineBtnText, { color: '#050914' }]}>VIEW PROFILE</Text>
+                                            </TouchableOpacity>
+
+                                            <View style={styles.splitRow}>
+                                                <TouchableOpacity 
+                                                    style={[styles.filledBtn, { width: '48%', backgroundColor: '#E74C3C' }]}
+                                                    // Pass like_id (sender) and liked_id (receiver) dynamically based on your JSON
+                                                    onPress={() => handleUpdateStatus(profile.like_id, profile.liked_id, 'rejected')}
+                                                >
+                                                    <Text style={styles.filledBtnText}>✕  REJECT</Text>
+                                                </TouchableOpacity>
+                                                
+                                                <TouchableOpacity 
+                                                    style={[styles.filledBtn, { width: '48%', backgroundColor: '#2ECC71' }]}
+                                                    // Pass like_id (sender) and liked_id (receiver) dynamically based on your JSON
+                                                    onPress={() => handleUpdateStatus(profile.like_id, profile.liked_id, 'accepted')}
+                                                >
+                                                    <Text style={styles.filledBtnText}>✓  ACCEPT</Text>
+                                                </TouchableOpacity>
+                                            </View>
+                                        </View>
+                                    ) : (
+                                        // ── RESOLVED STATE (Accepted/Rejected): Show View Profile Only ──
+                                        <View style={styles.actionRow}>
+                                            <TouchableOpacity 
+                                                style={[styles.outlineBtn, { width: '100%', borderColor: cardHighlightColor }]}
+                                                onPress={() => navigation.navigate('ViewProfile', { 
+                                                    profileId: profile.id,
+                                                    userid: profile.user_id 
+                                                })}
+                                            >
+                                                <Text style={[styles.outlineBtnText, { color: cardHighlightColor }]}>
+                                                    VIEW PROFILE
+                                                </Text>
+                                            </TouchableOpacity>
+                                        </View>
+                                    )}
                                 </View>
                             </View>
                         );
                     })}
-
-                    {/* Premium Banner Engagement Callout Box */}
-                    <View style={styles.premiumCard}>
-                        <View style={styles.premiumIconCircle}>
-                            <Text style={styles.premiumCrown}>👑</Text>
-                        </View>
-                        <View style={styles.premiumInfo}>
-                            <Text style={styles.premiumTitle}>Upgrade to Premium</Text>
-                            <Text style={styles.premiumSubtitle}>Connect instantly with your saved matches</Text>
-                        </View>
-                        <TouchableOpacity style={styles.premiumBtn}>
-                            <Text style={styles.premiumBtnText}>UPGRADE NOW</Text>
-                        </TouchableOpacity>
-                    </View>
                 </ScrollView>
             )}
         </SafeAreaView>
@@ -251,45 +316,30 @@ const styles = StyleSheet.create({
         borderRadius: 20,
     },
     chipText: { color: '#FFFFFF', fontSize: 13, fontWeight: '700' },
+    
     profileCard: {
         backgroundColor: '#FFFFFF',
         borderRadius: 16,
         overflow: 'hidden',
         marginBottom: 20,
-        borderWidth: 1,
-        borderColor: '#EAEAEA',
+        borderColor: '#EAEAEA', 
     },
     imageWrapper: { position: 'relative', width: '100%', height: 240 },
     profileImage: { width: '100%', height: '100%', resizeMode: 'cover' },
-    onlineBadge: {
+    
+    // Status Badges
+    statusBadge: {
         position: 'absolute',
         bottom: 12,
         left: 12,
-        backgroundColor: 'rgba(0,0,0,0.6)',
+        paddingHorizontal: 10,
+        paddingVertical: 5,
+        borderRadius: 12,
         flexDirection: 'row',
         alignItems: 'center',
-        paddingHorizontal: 8,
-        paddingVertical: 4,
-        borderRadius: 12,
     },
-    onlineDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#2ecc71', marginRight: 6 },
-    onlineText: { color: '#FFFFFF', fontSize: 10, fontWeight: '700', letterSpacing: 0.5 },
-    heartButton: {
-        position: 'absolute',
-        top: 12,
-        right: 12,
-        backgroundColor: '#FFFFFF',
-        width: 36,
-        height: 36,
-        borderRadius: 18,
-        justifyContent: 'center',
-        alignItems: 'center',
-        shadowColor: '#000',
-        shadowOpacity: 0.15,
-        shadowRadius: 4,
-        elevation: 3,
-    },
-    heartIcon: { fontSize: 16 },
+    statusText: { fontSize: 11, fontWeight: '800', letterSpacing: 0.5, color: '#FFFFFF' },
+
     detailsContainer: { padding: 16 },
     nameRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 4 },
     profileName: { fontSize: 20, fontWeight: 'bold', color: '#050914', marginRight: 8 },
@@ -312,50 +362,25 @@ const styles = StyleSheet.create({
     },
     gridItem: { width: '48%' },
     metaText: { fontSize: 13, color: '#555555' },
-    actionRow: { flexDirection: 'row', justifyContent: 'space-between' },
+    
+    // Action Containers
+    actionColumn: { flexDirection: 'column' },
+    actionRow: { flexDirection: 'row', justifyContent: 'center' },
+    splitRow: { flexDirection: 'row', justifyContent: 'space-between' },
+    
+    // Buttons
     outlineBtn: {
-        width: '47%',
-        borderWidth: 1,
-        borderColor: '#050914',
+        borderWidth: 1.5,
         borderRadius: 8,
         paddingVertical: 12,
         alignItems: 'center',
+        backgroundColor: '#FAFAFA'
     },
-    outlineBtnText: { color: '#050914', fontSize: 13, fontWeight: '700' },
+    outlineBtnText: { fontSize: 14, fontWeight: '800' },
     filledBtn: {
-        width: '47%',
-        backgroundColor: '#1E2213',
         borderRadius: 8,
         paddingVertical: 12,
         alignItems: 'center',
     },
-    filledBtnText: { color: '#FFFFFF', fontSize: 13, fontWeight: '700' },
-    premiumCard: {
-        backgroundColor: '#151922',
-        borderRadius: 16,
-        padding: 20,
-        alignItems: 'center',
-        marginTop: 10,
-    },
-    premiumIconCircle: {
-        width: 48,
-        height: 48,
-        borderRadius: 24,
-        backgroundColor: '#F7C942',
-        justifyContent: 'center',
-        alignItems: 'center',
-        marginBottom: 12,
-    },
-    premiumCrown: { fontSize: 24 },
-    premiumInfo: { alignItems: 'center', marginBottom: 16 },
-    premiumTitle: { color: '#FFFFFF', fontSize: 18, fontWeight: 'bold', marginBottom: 4 },
-    premiumSubtitle: { color: '#9A9FA7', fontSize: 13, textAlign: 'center' },
-    premiumBtn: {
-        backgroundColor: '#FBC723',
-        width: '100%',
-        paddingVertical: 14,
-        borderRadius: 25,
-        alignItems: 'center',
-    },
-    premiumBtnText: { color: '#0F1421', fontSize: 14, fontWeight: '800', letterSpacing: 0.5 },
+    filledBtnText: { color: '#FFFFFF', fontSize: 13, fontWeight: '800' },
 });

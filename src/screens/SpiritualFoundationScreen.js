@@ -4,7 +4,7 @@ import { saveProfileData } from '../utils/profileStorage';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
     View, Text, TextInput, TouchableOpacity, ScrollView,
-    StyleSheet, SafeAreaView, StatusBar, Platform,
+    StyleSheet, SafeAreaView, StatusBar, Platform, Alert
 } from 'react-native';
 
 const ATTENDANCE = ['Weekly', 'Monthly', 'Daily'];
@@ -84,12 +84,12 @@ export default function SpiritualFoundationScreen({ navigation }) {
         await saveProfileData({
             user_id: userId,   // add this
 
-            ministry_participation: ministryParticipation,
+            ministry_participation: ministryParticipation ? 1 : 0,
             ministry_description: ministryBrief,
             saved_person: isSaved ? 1 : 0,
             holy_spirit: isAnointed ? 1 : 0,
             baptized: isBaptized ? 1 : 0,
-            baptism_date: baptizedDate,
+            baptism_date: isBaptized ? baptizedDate : '',
             membership_year: membershipYears,
             church_name: churchName,
             church_attendance_frequency: attendance,

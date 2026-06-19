@@ -1,811 +1,861 @@
-import React, { useEffect, useRef, useState } from 'react';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useNavigation } from '@react-navigation/native';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import {
-    StyleSheet,
-    Text,
-    View,
-    ScrollView,
-    Image,
-    TouchableOpacity,
-    Animated,
-    StatusBar,
-    Platform,
-    Dimensions,
+    View, Text, FlatList, TouchableOpacity, Image,
+    StyleSheet, StatusBar, ActivityIndicator,
+    Alert, RefreshControl, Dimensions, Animated, Pressable,
+    Platform, ScrollView,
 } from 'react-native';
-import {
-    SafeAreaView,
-} from 'react-native-safe-area-context';
-const { width } = Dimensions.get('window');
+import { SafeAreaView } from 'react-native-safe-area-context';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useFocusEffect } from '@react-navigation/native';
+import { LinearGradient } from 'expo-linear-gradient';
 
-// ─── Design Tokens ───────────────────────────────────────────
-const GOLD = '#C9A84C';
-const GOLD_LIGHT = '#F5E6C0';
-const GOLD_MUTED = '#8A6320';
-const GOLD_BORDER = 'rgba(180,150,90,0.28)';
-const IVORY = '#F9F6F1';
-const IVORY_CARD = '#FFF8EE';
-const DARK_CARD = '#1C1209';
-const BROWN_TEXT = '#2C1A00';
-const BROWN_MUTED = '#7A5C2A';
-const BROWN_META = '#9A7848';
-const WHITE = '#FFFFFF';
-const SCRIM_DARK = 'rgba(10,6,2,0.82)';
-const SCRIM_MID = 'rgba(10,6,2,0.30)';
-const TAG_BG = 'rgba(255,255,255,0.12)';
-const TAG_BORDER = 'rgba(201,168,76,0.45)';
-const GHOST_BG = 'rgba(255,255,255,0.12)';
-const GHOST_BORDER = 'rgba(255,255,255,0.30)';
 
-// ─── Explore Items ────────────────────────────────────────────
-const EXPLORE_ITEMS = [
-    { label: 'Search', icon: '🔍' },
-    { label: 'Matches', icon: '💝' },
-    { label: 'Messages', icon: '✉️' },
-    { label: 'Shortlist', icon: '⭐' },
-    { label: 'Likes Me', icon: '👤' },
-];
+const { width: SW, height: SH } = Dimensions.get('window');
 
-// ─── Grooms Data ──────────────────────────────────────────────
-const GROOMS_DATA = [
-    {
-        id: '1',
-        name: 'Samuel George',
-        age: 29,
-        location: 'Bangalore',
-        denomination: 'Syro-Malabar',
-        profession: 'Architect',
-        match: '95%',
-        image: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?q=80&w=400',
+// ─── Design Tokens ─────────────────────────────────────────────────────────────
+const COLORS = {
+    gold: '#C9A84C',
+    goldLight: '#F7EDD4',
+    goldDeep: '#A07830',
+    navy: '#12203A',
+    navyMid: '#1E3358',
+    navyLight: '#243059',
+    bg: '#F6F3EE',
+    bgCard: '#FFFFFF',
+    border: '#EAE3D6',
+    muted: '#8A96A8',
+    mutedLight: '#B8C0CC',
+    success: '#19A87A',
+    successBg: '#E5F7F1',
+    successText: '#0B6E50',
+    danger: '#D04E28',
+    dangerBg: '#FBF0EC',
+    dangerText: '#8B2F12',
+    faith: '#2D6BB5',
+    faithBg: '#EBF3FD',
+    faithText: '#1A4880',
+    text: '#1A1F2E',
+    textSub: '#5E6577',
+    textMuted: '#9198AA',
+    white: '#FFFFFF',
+    black: '#000000',
+    overlay: 'rgba(18, 32, 58, 0.55)',
+};
+
+const RADIUS = { xs: 6, sm: 10, md: 14, lg: 20, xl: 28, full: 999 };
+const FONT = {
+    xs: 10, sm: 11, base: 13, md: 14, lg: 16, xl: 18, xxl: 22, hero: 28,
+};
+
+const BASE_URL = 'https://matrimony.gmworld.net';
+
+// ─── Helpers ───────────────────────────────────────────────────────────────────
+const getInitials = (name) => {
+    if (!name || typeof name !== 'string') return '?';
+    return name.trim().split(' ').slice(0, 2).map(w => w[0]?.toUpperCase() || '').join('');
+};
+
+const cmToFeet = (cm) => {
+    if (!cm) return null;
+    const totalIn = Math.round(Number(cm) / 2.54);
+    return `${Math.floor(totalIn / 12)}'${totalIn % 12}"`;
+};
+
+const calcAge = (dob) => {
+    if (!dob) return null;
+    const b = new Date(dob), t = new Date();
+    let a = t.getFullYear() - b.getFullYear();
+    if (t.getMonth() - b.getMonth() < 0 ||
+        (t.getMonth() === b.getMonth() && t.getDate() < b.getDate())) a--;
+    return a;
+};
+
+const resolveImage = (img) => {
+    if (!img) return null;
+    return img.startsWith('http') ? img : `${BASE_URL}/storage/${img}`;
+};
+
+const getMatchColor = (pct) => {
+    if (pct >= 80) return COLORS.success;
+    if (pct >= 60) return COLORS.gold;
+    return COLORS.danger;
+};
+
+// ─── Shimmer Skeleton ─────────────────────────────────────────────────────────
+const ShimmerBox = ({ width, height, radius = RADIUS.sm, style }) => {
+    const anim = useRef(new Animated.Value(0)).current;
+    useEffect(() => {
+        const loop = Animated.loop(
+            Animated.sequence([
+                Animated.timing(anim, { toValue: 1, duration: 800, useNativeDriver: true }),
+                Animated.timing(anim, { toValue: 0, duration: 800, useNativeDriver: true }),
+            ])
+        );
+        loop.start();
+        return () => loop.stop();
+    }, []);
+    const opacity = anim.interpolate({ inputRange: [0, 1], outputRange: [0.25, 0.6] });
+    return (
+        <Animated.View style={[{ width, height, borderRadius: radius, backgroundColor: '#CFC9BF', opacity }, style]} />
+    );
+};
+
+const SkeletonCard = () => (
+    <View style={sk.card}>
+        <View style={sk.topBand}>
+            <ShimmerBox width={90} height={10} radius={5} />
+            <ShimmerBox width={60} height={10} radius={5} />
+        </View>
+        <View style={sk.body}>
+            <ShimmerBox width={88} height={108} radius={RADIUS.md} />
+            <View style={sk.lines}>
+                <ShimmerBox width={150} height={16} style={{ marginBottom: 10 }} />
+                <View style={{ flexDirection: 'row', gap: 6, marginBottom: 10 }}>
+                    {[55, 42, 68].map((w, i) => <ShimmerBox key={i} width={w} height={22} radius={RADIUS.full} />)}
+                </View>
+                {[SW - 165, SW - 185, SW - 205].map((w, i) => (
+                    <ShimmerBox key={i} width={w} height={10} radius={4} style={{ marginBottom: 7 }} />
+                ))}
+            </View>
+        </View>
+        <View style={sk.footer}>
+            <ShimmerBox width="100%" height={5} radius={2.5} style={{ marginBottom: 14 }} />
+            <View style={{ flexDirection: 'row', gap: 8 }}>
+                {['35%', '30%', '30%'].map((w, i) => (
+                    <ShimmerBox key={i} width={w} height={42} radius={RADIUS.md} />
+                ))}
+            </View>
+        </View>
+    </View>
+);
+
+const sk = StyleSheet.create({
+    card: {
+        backgroundColor: COLORS.bgCard,
+        borderRadius: RADIUS.lg,
+        borderWidth: 0.5,
+        borderColor: COLORS.border,
+        marginBottom: 16,
+        overflow: 'hidden',
+        padding: 0,
     },
-    {
-        id: '2',
-        name: 'Ishan Thomas',
-        age: 31,
-        location: 'Kochi',
-        denomination: 'Catholic',
-        profession: 'Consultant',
-        match: '89%',
-        image: 'https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?q=80&w=400',
+    topBand: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        backgroundColor: '#EDE8E0',
+        paddingHorizontal: 14,
+        paddingVertical: 11,
     },
-];
+    body: { flexDirection: 'row', gap: 12, padding: 14, paddingBottom: 10 },
+    lines: { flex: 1 },
+    footer: { paddingHorizontal: 14, paddingBottom: 14, paddingTop: 6 },
+});
 
-// ─── Elite Perks ─────────────────────────────────────────────
-const ELITE_PERKS = [
-    'Priority visibility to premium families',
-    'Verified badge & background check',
-    '1-on-1 matchmaking counselor',
-];
+// ─── Premium Avatar ────────────────────────────────────────────────────────────
+const Avatar = ({ uri, initials, size = 90, radius = RADIUS.md }) => {
+    const [err, setErr] = useState(false);
+    const scale = useRef(new Animated.Value(0.85)).current;
+    const opacity = useRef(new Animated.Value(0)).current;
 
-// ════════════════════════════════════════════════════════════════
-export default function ProfileScreen() {
-    const navigation = useNavigation();
-    const fadeAnim = useRef(new Animated.Value(0)).current;
-    const scaleAnim = useRef(new Animated.Value(0.96)).current;
-    const [profile, setProfile] = useState(null);
-    const [liked, setLiked] = useState(false);
-    const [showMenu, setShowMenu] = useState(false);
-
-
-    // ── Load profile from storage ──────────────────────────────
-    const loadProfile = async () => {
-        try {
-            const stored = await AsyncStorage.getItem('profileData');
-            if (stored) setProfile(JSON.parse(stored));
-        } catch (e) {
-            console.warn('ProfileScreen – loadProfile error:', e);
-        }
+    const reveal = () => {
+        Animated.parallel([
+            Animated.spring(scale, { toValue: 1, friction: 6, useNativeDriver: true }),
+            Animated.timing(opacity, { toValue: 1, duration: 280, useNativeDriver: true }),
+        ]).start();
     };
+
+    const colors = [COLORS.navyLight, COLORS.navyMid, COLORS.navy];
+
+    return (
+        <View style={{ width: size, height: size + 8, borderRadius: radius, overflow: 'hidden', borderWidth: 2, borderColor: COLORS.gold }}>
+            {uri && !err ? (
+                <Animated.Image
+                    source={{ uri }}
+                    style={{ width: '100%', height: '100%', transform: [{ scale }], opacity }}
+                    resizeMode="cover"
+                    onLoad={reveal}
+                    onError={() => { setErr(true); reveal(); }}
+                />
+            ) : (
+                <View style={{ flex: 1, backgroundColor: COLORS.navyMid, alignItems: 'center', justifyContent: 'center' }}>
+                    <Text style={{ fontSize: 24, fontWeight: '700', color: COLORS.gold, letterSpacing: 0.5 }}>
+                        {initials}
+                    </Text>
+                </View>
+            )}
+        </View>
+    );
+};
+
+// ─── Tag Pill ──────────────────────────────────────────────────────────────────
+const Tag = ({ label, type = 'default', icon }) => {
+    if (!label) return null;
+    const styles = {
+        default: { bg: COLORS.goldLight, border: '#E2CE8A', text: COLORS.goldDeep },
+        faith: { bg: COLORS.faithBg, border: '#B5CEE8', text: COLORS.faithText },
+        green: { bg: COLORS.successBg, border: '#9FD5C3', text: COLORS.successText },
+        navy: { bg: '#E8EBF2', border: '#C8D0E0', text: COLORS.navyMid },
+        danger: { bg: COLORS.dangerBg, border: '#EEC0AE', text: COLORS.dangerText },
+    };
+    const s = styles[type] || styles.default;
+    return (
+        <View style={{
+            flexDirection: 'row', alignItems: 'center', gap: 3,
+            backgroundColor: s.bg,
+            borderWidth: 0.5, borderColor: s.border,
+            borderRadius: RADIUS.full,
+            paddingHorizontal: 9, paddingVertical: 4,
+        }}>
+            {icon ? <Text style={{ fontSize: 9 }}>{icon}</Text> : null}
+            <Text style={{ fontSize: FONT.xs, color: s.text, fontWeight: '700', letterSpacing: 0.2 }}>
+                {label}
+            </Text>
+        </View>
+    );
+};
+
+// ─── Info Row ──────────────────────────────────────────────────────────────────
+const InfoRow = ({ icon, label }) => {
+    if (!label) return null;
+    return (
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, marginBottom: 5 }}>
+            <Text style={{ fontSize: 11, lineHeight: 16 }}>{icon}</Text>
+            <Text style={{ fontSize: FONT.sm, color: COLORS.textSub, flex: 1 }} numberOfLines={1}>{label}</Text>
+        </View>
+    );
+};
+
+// ─── Divider with Label ────────────────────────────────────────────────────────
+const SectionLabel = ({ title }) => (
+    <View style={{ flexDirection: 'row', alignItems: 'center', marginHorizontal: 14, marginVertical: 6 }}>
+        <View style={{ flex: 1, height: 0.5, backgroundColor: COLORS.border }} />
+        <Text style={{
+            fontSize: 9, color: COLORS.gold, fontWeight: '800',
+            letterSpacing: 1.5, marginHorizontal: 10, textTransform: 'uppercase',
+        }}>{title}</Text>
+        <View style={{ flex: 1, height: 0.5, backgroundColor: COLORS.border }} />
+    </View>
+);
+
+// ─── Animated Progress Bar ─────────────────────────────────────────────────────
+const MatchScore = ({ pct }) => {
+    const p = Math.min(100, Math.max(0, Number(pct) || 0));
+    const color = getMatchColor(p);
+    const w = useRef(new Animated.Value(0)).current;
+    const scaleAnim = useRef(new Animated.Value(0.8)).current;
 
     useEffect(() => {
         Animated.parallel([
-            Animated.timing(fadeAnim, { toValue: 1, duration: 550, useNativeDriver: true }),
-            Animated.spring(scaleAnim, { toValue: 1, friction: 7, useNativeDriver: true }),
+            Animated.spring(w, { toValue: p, friction: 7, delay: 300, useNativeDriver: false }),
+            Animated.spring(scaleAnim, { toValue: 1, friction: 6, delay: 300, useNativeDriver: true }),
         ]).start();
-        loadProfile();
+    }, [p]);
+
+    const barW = w.interpolate({ inputRange: [0, 100], outputRange: ['0%', '100%'] });
+
+    return (
+        <View style={{ paddingHorizontal: 14, paddingVertical: 12, borderTopWidth: 0.5, borderTopColor: COLORS.border }}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 7 }}>
+                <Text style={{ fontSize: FONT.sm, color: COLORS.textMuted, fontWeight: '600', letterSpacing: 0.4 }}>
+                    Compatibility Score
+                </Text>
+                <Animated.View style={{
+                    backgroundColor: `${color}18`,
+                    borderRadius: RADIUS.full,
+                    paddingHorizontal: 10, paddingVertical: 3,
+                    transform: [{ scale: scaleAnim }],
+                }}>
+                    <Text style={{ fontSize: FONT.md, fontWeight: '900', color }}>
+                        {p}%
+                    </Text>
+                </Animated.View>
+            </View>
+            <View style={{ height: 5, backgroundColor: COLORS.border, borderRadius: RADIUS.full, overflow: 'hidden' }}>
+                <Animated.View style={{ height: 5, width: barW, backgroundColor: color, borderRadius: RADIUS.full }} />
+            </View>
+        </View>
+    );
+};
+
+// ─── Ripple Button ─────────────────────────────────────────────────────────────
+const RippleBtn = ({ label, icon, variant = 'outline', onPress, flex = 1 }) => {
+    const scale = useRef(new Animated.Value(1)).current;
+    const pressIn = () => Animated.spring(scale, { toValue: 0.93, useNativeDriver: true, friction: 10 }).start();
+    const pressOut = () => Animated.spring(scale, { toValue: 1, useNativeDriver: true, friction: 6 }).start();
+
+    const variants = {
+        dark: { bg: COLORS.navy, border: COLORS.navy, text: COLORS.white },
+        gold: { bg: COLORS.goldLight, border: COLORS.gold, text: COLORS.goldDeep },
+        blue: { bg: '#1B55E2', border: '#1B55E2', text: COLORS.white },
+        outline: { bg: 'transparent', border: COLORS.border, text: COLORS.text },
+    };
+    const v = variants[variant];
+
+    return (
+        <Pressable onPress={onPress} onPressIn={pressIn} onPressOut={pressOut} style={{ flex }}>
+            <Animated.View style={{
+                flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5,
+                backgroundColor: v.bg,
+                borderWidth: variant === 'outline' ? 0.5 : 1.5,
+                borderColor: v.border,
+                borderRadius: RADIUS.md,
+                paddingVertical: 12,
+                transform: [{ scale }],
+            }}>
+                {icon && <Text style={{ fontSize: 13 }}>{icon}</Text>}
+                <Text style={{ fontSize: FONT.sm, fontWeight: '700', color: v.text, letterSpacing: 0.3 }}>
+                    {label}
+                </Text>
+            </Animated.View>
+        </Pressable>
+    );
+};
+
+// ─── Member Card ───────────────────────────────────────────────────────────────
+const MemberCard = React.memo(({
+    item,
+    onViewProfile,
+    onViewMatch,
+    onUpdateProfile,
+    index,
+    myProfileImage
+}) => {
+    const age = calcAge(item.date_of_birth);
+    const height = cmToFeet(item.height);
+    const imgUri = item.profile_image
+        ? resolveImage(item.profile_image)
+        : myProfileImage;
+    const initials = getInitials(item?.full_name ?? '');
+    const uid = item.user_id || item.id || '';
+    const isGroom = item.gender === 'male' || item.gender === 'Male';
+    const matchPct = Number(item.match_percentage ?? 0);
+
+    const translateY = useRef(new Animated.Value(30)).current;
+    const opacity = useRef(new Animated.Value(0)).current;
+
+    useEffect(() => {
+        Animated.parallel([
+            Animated.timing(translateY, {
+                toValue: 0, duration: 400,
+                delay: Math.min(index * 70, 350),
+                useNativeDriver: true,
+            }),
+            Animated.timing(opacity, {
+                toValue: 1, duration: 400,
+                delay: Math.min(index * 70, 350),
+                useNativeDriver: true,
+            }),
+        ]).start();
     }, []);
 
-    // ── Render ─────────────────────────────────────────────────
     return (
-        <SafeAreaView style={styles.root} edges={['top', 'bottom']}>
-            <StatusBar barStyle="dark-content" backgroundColor={IVORY} />
+        <Animated.View style={[C.cardWrap, { transform: [{ translateY }], opacity }]}>
+           
+            {/* ── Header Band ── */}
+            <View style={C.headerBand}>
 
-            {/* ── Top Bar ─────────────────────────────────────── */}
-            <View style={styles.topbar}>
-                <Text style={styles.topbarLogo}>
-                    Sacred<Text style={styles.topbarLogoAccent}>Bond</Text>
-                </Text>
-                <View style={styles.topbarIcons}>
-                   
-                    <TouchableOpacity
-                        style={styles.iconBtn}
-                        activeOpacity={0.7}
-                        onPress={() => setShowMenu(true)}
-                    >
-                        <Text style={styles.iconEmoji}>☰</Text>
-                    </TouchableOpacity>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                    {/* Gender badge */}
+                    <View style={[C.genderDot, { backgroundColor: isGroom ? '#1B55E2' : '#B5327A' }]} />
+                    <Text style={C.headerUID}>#{uid}</Text>
+                    <View style={C.genderPill}>
+                        <Text style={[C.genderPillTxt, { color: isGroom ? '#5FA4F8' : '#E07CC0' }]}>
+                            {isGroom ? 'Groom' : 'Bride'}
+                        </Text>
+                    </View>
+                </View>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                    {item.is_verified && (
+                        <View style={C.verifiedBadge}>
+                            <Text style={C.verifiedTxt}>✓ Verified</Text>
+                        </View>
+                    )}
+                    <View style={C.matchBubble}>
+                        <Text style={[C.matchBubbleTxt, { color: getMatchColor(matchPct) }]}>
+                            {matchPct}%
+                        </Text>
+                    </View>
                 </View>
             </View>
 
-            <ScrollView
-                showsVerticalScrollIndicator={false}
-                contentContainerStyle={styles.scrollContent}
-            >
-                {/* ── Hero Card ───────────────────────────────── */}
-                <Animated.View
-                    style={[
-                        styles.heroWrap,
-                        { opacity: fadeAnim, transform: [{ scale: scaleAnim }] },
-                    ]}
-                >
-                    <Image
-                        source={{ uri: profile?.profile_image || 'https://images.unsplash.com/photo-1531746020798-e6953c6e8e04?q=80&w=600' }}
-                        style={styles.heroImage}
+            {/* ── Main Content ── */}
+            <View style={C.mainRow}>
+                <View style={C.avatarCol}>
+                    <Avatar
+                        uri={imgUri}
+                        initials={initials}
+                        size={90}
                     />
 
-                    {/* Scrim gradient */}
-                    <View style={styles.heroScrim} />
-
-                    {/* Verified badge */}
-                    <View style={styles.verifiedBadge}>
-                        <Text style={styles.verifiedBadgeText}>✓ Verified</Text>
-                    </View>
-
-                    {/* Glass info panel */}
-                    <View style={styles.glassPanel}>
-                        <View style={styles.nameRow}>
-                            <Text style={styles.heroName}>
-                                {profile?.full_name || 'Meera Antony'}
-                            </Text>
-                            <Text style={styles.heroAge}>
-                                {profile?.age ? `, ${profile.age}` : ', 26'}
+                    {item.marital_status && (
+                        <View style={C.maritalBadge}>
+                            <Text style={C.maritalTxt}>
+                                {item.marital_status}
                             </Text>
                         </View>
-
-                        <View style={styles.locationRow}>
-                            <Text style={styles.locationIcon}>📍</Text>
-                            <Text style={styles.locationText}>
-                                {profile?.current_location || 'Kochi, Kerala'}
-                            </Text>
-                        </View>
-
-                        <View style={styles.tagRow}>
-                            <View style={styles.tag}>
-                                <Text style={styles.tagText}>
-                                    ⛪ {profile?.community || 'Syro-Malabar'}
-                                </Text>
-                            </View>
-                            <View style={styles.tag}>
-                                <Text style={styles.tagText}>
-                                    💼 {profile?.occupation || 'Software Engineer'}
-                                </Text>
-                            </View>
-                        </View>
-
-                        <View style={styles.ctaRow}>
-                            <TouchableOpacity
-                                style={styles.btnPrimary}
-                                activeOpacity={0.85}
-                                onPress={() => navigation.navigate('ViewProfile')}
-                            >
-                                <Text style={styles.btnPrimaryText}>
-                                    View Full Profile →
-                                </Text>
-                            </TouchableOpacity>
-                            <TouchableOpacity
-                                style={styles.btnGhost}
-                                activeOpacity={0.75}
-                                onPress={() => setLiked(v => !v)}
-                            >
-                                <Text style={styles.btnGhostIcon}>{liked ? '❤️' : '🤍'}</Text>
-                            </TouchableOpacity>
-                            <TouchableOpacity style={styles.btnGhost} activeOpacity={0.75}>
-                                <Text style={styles.btnGhostIcon}>↗</Text>
-                            </TouchableOpacity>
-                        </View>
-                    </View>
-                </Animated.View>
-
-                {/* ── Profile Completeness ────────────────────── */}
-                <View style={styles.completeCard}>
-                    <View style={styles.completeHeader}>
-                        <Text style={styles.completeLabel}>Profile Completeness</Text>
-                        <Text style={styles.completePercent}>72%</Text>
-                    </View>
-                    <View style={styles.barTrack}>
-                        <View style={styles.barFill} />
-                    </View>
+                    )}
                 </View>
 
-                {/* ── Explore ─────────────────────────────────── */}
-                <View style={styles.sectionHeader}>
-                    <Text style={styles.sectionTitle}>Explore</Text>
-                    <TouchableOpacity>
-                        <Text style={styles.sectionLink}>See All</Text>
-                    </TouchableOpacity>
-                </View>
-
-                <ScrollView
-                    horizontal
-                    showsHorizontalScrollIndicator={false}
-                    contentContainerStyle={styles.exploreRow}
-                >
-                    {EXPLORE_ITEMS.map((item, idx) => (
-                        <TouchableOpacity key={idx} style={styles.exploreItem} activeOpacity={0.7}>
-                            <View style={styles.exploreCircle}>
-                                <Text style={styles.exploreIcon}>{item.icon}</Text>
-                            </View>
-                            <Text style={styles.exploreLabel}>{item.label}</Text>
-                        </TouchableOpacity>
-                    ))}
-                </ScrollView>
-
-                {/* ── Grooms for You ──────────────────────────── */}
-                <View style={styles.sectionHeader}>
-                    <Text style={styles.sectionTitle}>Grooms for You</Text>
-                    <TouchableOpacity>
-                        <Text style={styles.sectionLink}>Refine</Text>
-                    </TouchableOpacity>
-                </View>
-
-                <ScrollView
-                    horizontal
-                    showsHorizontalScrollIndicator={false}
-                    contentContainerStyle={styles.groomsRow}
-                >
-                    {GROOMS_DATA.map((groom) => (
-                        <View key={groom.id} style={styles.groomCard}>
-                            <View>
-                                <Image source={{ uri: groom.image }} style={styles.groomImage} />
-                                <View style={styles.compatPill}>
-                                    <Text style={styles.compatPillText}>{groom.match} Match</Text>
-                                </View>
-                            </View>
-                            <View style={styles.groomBody}>
-                                <Text style={styles.groomName}>{groom.name}</Text>
-                                <Text style={styles.groomMeta}>
-                                    {groom.age} · {groom.location}{'\n'}
-                                    {groom.denomination} · {groom.profession}
-                                </Text>
-                                <TouchableOpacity style={styles.connectBtn} activeOpacity={0.8}>
-                                    <Text style={styles.connectBtnText}>CONNECT NOW</Text>
-                                </TouchableOpacity>
-                            </View>
-                        </View>
-                    ))}
-                </ScrollView>
-
-                {/* ── Elite Circle ────────────────────────────── */}
-                <View style={styles.sectionHeader}>
-                    <Text style={[styles.sectionTitle, { color: GOLD_MUTED }]}>Elite Circle</Text>
-                </View>
-
-                <View style={styles.eliteCard}>
-                    {/* Decorative orbs */}
-                    <View style={styles.eliteOrb1} />
-                    <View style={styles.eliteOrb2} />
-
-                    <View style={styles.eliteHeadRow}>
-                        <View style={styles.eliteIconBox}>
-                            <Text style={styles.eliteIconEmoji}>🛡️</Text>
-                        </View>
-                        <Text style={styles.eliteTitle}>Elite Circle</Text>
-                    </View>
-
-                    <Text style={styles.eliteSub}>
-                        Unlock verified matches, compatibility reports & faith-centered counseling.
+                <View style={{ flex: 1 }}>
+                    <Text style={C.name} numberOfLines={1}>{item.full_name || '—'}</Text>
+                    <Text style={C.profileCode}>
+                        Profile ID : #{uid}
                     </Text>
 
-                    <View style={styles.elitePerks}>
-                        {ELITE_PERKS.map((perk, i) => (
-                            <View key={i} style={styles.perkRow}>
-                                <View style={styles.perkDot} />
-                                <Text style={styles.perkText}>{perk}</Text>
+                    {/* Quick Vitals Row */}
+                    <View style={C.tagWrap}>
+                        {age && <Tag label={`${age} yrs`} icon="🎂" />}
+                        {height && <Tag label={height} icon="📏" />}
+                        {item.current_location && <Tag label={item.current_location} icon="📍" />}
+                        {item.denomination && <Tag label={item.denomination} type="faith" />}
+                        {item.community && !item.denomination && <Tag label={item.community} type="faith" />}
+                    </View>
+
+                    <InfoRow icon="💼" label={item.occupation} />
+                    <InfoRow icon="🎓" label={item.education} />
+                    <InfoRow icon="⛪" label={item.church_name} />
+                </View>
+            </View>
+
+            {/* ── Extra Details ── */}
+            {(item.mother_tongue || item.annual_income || item.house_type) && (
+                <>
+                    <SectionLabel title="More Details" />
+                    <View style={C.extraGrid}>
+                        {[
+                            { label: 'Mother Tongue', val: item.mother_tongue },
+                            { label: 'Income', val: item.annual_income },
+                            { label: 'House', val: item.house_type },
+                        ].filter(x => x.val).map((x, i) => (
+                            <View key={i} style={C.extraCell}>
+                                <Text style={C.extraLabel}>{x.label}</Text>
+                                <Text style={C.extraVal} numberOfLines={1}>{x.val}</Text>
                             </View>
                         ))}
                     </View>
-
-                    <TouchableOpacity style={styles.eliteBtn} activeOpacity={0.85}>
-                        <Text style={styles.eliteBtnText}>Upgrade to Premium</Text>
-                    </TouchableOpacity>
-                </View>
-
-            </ScrollView>
-            {showMenu && (
-                <>
-                    <TouchableOpacity
-                        style={styles.overlay}
-                        activeOpacity={1}
-                        onPress={() => setShowMenu(false)}
-                    />
-
-                    <View style={styles.sideMenu}>
-                        <TouchableOpacity
-                            style={styles.menuItem}
-                            onPress={() => {
-                                setShowMenu(false);
-                                navigation.navigate('Notifications');
-                            }}
-                        >
-                            <Text style={styles.menuText}>⚙️ Settings</Text>
-                        </TouchableOpacity>
-
-                        <TouchableOpacity
-                            style={styles.menuItem}
-                            onPress={async () => {
-                                await AsyncStorage.clear();
-                                navigation.replace('Login');
-                            }}
-                        >
-                            <Text style={[styles.menuText, { color: 'red' }]}>
-                                🚪 Logout
-                            </Text>
-                        </TouchableOpacity>
-                    </View>
                 </>
+            )}
+
+            {/* ── Faith Tags ── */}
+            {(item.saved_person || item.baptized || item.holy_spirit || item.church_attendance_frequency) && (
+                <View style={C.faithRow}>
+                    {item.saved_person && <Tag label="Saved" type="faith" icon="✝" />}
+                    {item.baptized && <Tag label="Baptized" type="faith" icon="💧" />}
+                    {item.holy_spirit && <Tag label="Holy Spirit" type="faith" icon="🕊" />}
+                    {item.church_attendance_frequency && (
+                        <Tag label={item.church_attendance_frequency} type="faith" />
+                    )}
+                </View>
+            )}
+
+            {/* ── Compatibility Bar ── */}
+            <MatchScore pct={matchPct} />
+
+            {/* ── Action Buttons ── */}
+            <View style={C.btnRow}>
+                <RippleBtn label="Profile" icon="👤" variant="dark" onPress={() => onViewProfile(item)} />
+                <RippleBtn label="Match" icon="♡" variant="gold" onPress={() => onViewMatch(item)} />
+                <RippleBtn label="Edit" icon="✏️" variant="blue" onPress={() => onUpdateProfile(item)} />
+            </View>
+        </Animated.View>
+    );
+});
+
+const C = StyleSheet.create({
+    cardWrap: {
+        backgroundColor: COLORS.bgCard,
+        borderRadius: RADIUS.lg,
+        borderWidth: 0.5,
+        borderColor: COLORS.border,
+        marginBottom: 16,
+        overflow: 'hidden',
+        ...Platform.select({
+            ios: {
+                shadowColor: '#000',
+                shadowOffset: { width: 0, height: 3 },
+                shadowOpacity: 0.08,
+                shadowRadius: 10,
+            },
+            android: { elevation: 3 },
+        }),
+    },
+    headerBand: {
+        backgroundColor: COLORS.navy,
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        paddingHorizontal: 14,
+        paddingVertical: 10,
+    },
+    profileCode: {
+        fontSize: 12,
+        color: COLORS.goldDeep,
+        fontWeight: '700',
+        marginBottom: 6,
+    },
+    genderDot: { width: 8, height: 8, borderRadius: 4 },
+    headerUID: { fontSize: FONT.sm, color: COLORS.gold, fontWeight: '800', letterSpacing: 0.6 },
+    genderPill: {
+        backgroundColor: 'rgba(255,255,255,0.08)',
+        borderRadius: RADIUS.full,
+        paddingHorizontal: 8, paddingVertical: 2,
+    },
+    genderPillTxt: { fontSize: FONT.xs, fontWeight: '700' },
+    verifiedBadge: {
+        backgroundColor: '#0A3D24',
+        borderRadius: RADIUS.full,
+        paddingHorizontal: 9, paddingVertical: 3,
+    },
+    verifiedTxt: { fontSize: FONT.xs, color: '#4ECC8A', fontWeight: '700' },
+    matchBubble: {
+        backgroundColor: 'rgba(255,255,255,0.10)',
+        borderRadius: RADIUS.full,
+        paddingHorizontal: 8, paddingVertical: 3,
+        minWidth: 42, alignItems: 'center',
+    },
+    matchBubbleTxt: { fontSize: FONT.sm, fontWeight: '900' },
+    mainRow: {
+        padding: 14,
+    },
+    avatarCol: { alignItems: 'center', gap: 6 },
+    maritalBadge: {
+        backgroundColor: COLORS.navy,
+        borderRadius: RADIUS.full,
+        paddingHorizontal: 8, paddingVertical: 3,
+        maxWidth: 90, alignItems: 'center',
+    },
+    maritalTxt: { fontSize: 8, color: COLORS.gold, fontWeight: '700', letterSpacing: 0.3 },
+    name: {
+        fontSize: FONT.lg,
+        fontWeight: '800',
+        color: COLORS.text,
+        marginBottom: 8,
+        letterSpacing: -0.3,
+    },
+    tagWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 5, marginBottom: 9 },
+    extraGrid: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        gap: 8,
+        paddingHorizontal: 14,
+        paddingBottom: 10,
+    },
+    extraCell: {
+        backgroundColor: COLORS.bg,
+        borderRadius: RADIUS.sm,
+        paddingHorizontal: 11,
+        paddingVertical: 8,
+        minWidth: (SW - 72) / 3 - 8,
+        borderWidth: 0.5,
+        borderColor: COLORS.border,
+        flex: 1,
+    },
+    extraLabel: {
+        fontSize: 9,
+        color: COLORS.textMuted,
+        fontWeight: '700',
+        textTransform: 'uppercase',
+        letterSpacing: 0.6,
+        marginBottom: 3,
+    },
+    extraVal: { fontSize: FONT.sm, color: COLORS.text, fontWeight: '700' },
+    faithRow: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        gap: 6,
+        paddingHorizontal: 14,
+        paddingBottom: 10,
+    },
+    btnRow: {
+        flexDirection: 'row',
+        gap: 8,
+        padding: 12,
+        paddingTop: 10,
+        paddingHorizontal: 14,
+        backgroundColor: COLORS.bg,
+        borderTopWidth: 0.5,
+        borderTopColor: COLORS.border,
+    },
+});
+
+// ─── Header Stats Banner ───────────────────────────────────────────────────────
+const HeaderBanner = ({ count, loading }) => {
+    const numAnim = useRef(new Animated.Value(0)).current;
+    const [displayed, setDisplayed] = useState(0);
+    const slideY = useRef(new Animated.Value(-20)).current;
+    const fadeAnim = useRef(new Animated.Value(0)).current;
+
+    useEffect(() => {
+        Animated.parallel([
+            Animated.timing(slideY, { toValue: 0, duration: 500, useNativeDriver: true }),
+            Animated.timing(fadeAnim, { toValue: 1, duration: 500, useNativeDriver: true }),
+        ]).start();
+    }, []);
+
+    useEffect(() => {
+        if (!loading) {
+            const listener = numAnim.addListener(({ value }) => setDisplayed(Math.floor(value)));
+            Animated.timing(numAnim, { toValue: count, duration: 1000, useNativeDriver: false }).start();
+            return () => numAnim.removeListener(listener);
+        }
+    }, [count, loading]);
+
+    return (
+        <Animated.View style={[HB.wrap, { transform: [{ translateY: slideY }], opacity: fadeAnim }]}>
+            <View style={HB.left}>
+                <Text style={HB.eyebrow}>✦ Faith-based Matchmaking</Text>
+                <Text style={HB.title}>MY PROFILES</Text>
+                <Text style={HB.subtitle}>Curated by denomination & preferences</Text>
+            </View>
+            <View style={HB.countBox}>
+                <Text style={HB.countNum}>{loading ? '—' : displayed}</Text>
+                <Text style={HB.countLabel}>Profiles</Text>
+            </View>
+        </Animated.View>
+    );
+};
+const HB = StyleSheet.create({
+    wrap: {
+        backgroundColor: COLORS.navy,
+        paddingHorizontal: 18,
+        paddingTop: 14,
+        paddingBottom: 16,
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        borderBottomWidth: 1,
+        borderBottomColor: COLORS.gold + '30',
+    },
+    left: {},
+    eyebrow: { fontSize: 9, color: COLORS.gold, fontWeight: '700', letterSpacing: 1.8, marginBottom: 4 },
+    title: { fontSize: FONT.xl, fontWeight: '900', color: COLORS.white, letterSpacing: -0.4 },
+    subtitle: { fontSize: FONT.sm, color: COLORS.muted, marginTop: 3 },
+    countBox: {
+        backgroundColor: COLORS.gold,
+        borderRadius: RADIUS.lg,
+        paddingHorizontal: 18,
+        paddingVertical: 10,
+        alignItems: 'center',
+        minWidth: 72,
+    },
+    countNum: { fontSize: FONT.xxl, fontWeight: '900', color: COLORS.navy, lineHeight: 28 },
+    countLabel: { fontSize: 9, fontWeight: '800', color: COLORS.navyMid, letterSpacing: 0.8, textTransform: 'uppercase', marginTop: 1 },
+});
+
+// ─── Empty State ───────────────────────────────────────────────────────────────
+const EmptyState = ({ onRetry }) => {
+    const pulse = useRef(new Animated.Value(1)).current;
+
+    useEffect(() => {
+        Animated.loop(
+            Animated.sequence([
+                Animated.timing(pulse, { toValue: 1.1, duration: 750, useNativeDriver: true }),
+                Animated.timing(pulse, { toValue: 1, duration: 750, useNativeDriver: true }),
+            ])
+        ).start();
+    }, []);
+
+    return (
+        <View style={ES.wrap}>
+            <Animated.Text style={[ES.icon, { transform: [{ scale: pulse }] }]}>🙏</Animated.Text>
+            <Text style={ES.heading}>No Matches Found</Text>
+            <Text style={ES.body}>
+                Complete your profile to receive faith-based suggestions tailored just for you.
+            </Text>
+            <TouchableOpacity style={ES.btn} onPress={onRetry} activeOpacity={0.8}>
+                <Text style={ES.btnTxt}>Refresh Matches</Text>
+            </TouchableOpacity>
+        </View>
+    );
+};
+const ES = StyleSheet.create({
+    wrap: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 40 },
+    icon: { fontSize: 56, marginBottom: 18 },
+    heading: { fontSize: FONT.xl, fontWeight: '800', color: COLORS.text, marginBottom: 8, textAlign: 'center' },
+    body: { fontSize: FONT.md, color: COLORS.textSub, textAlign: 'center', lineHeight: 22, marginBottom: 28 },
+    btn: {
+        backgroundColor: COLORS.navy,
+        paddingHorizontal: 32, paddingVertical: 14,
+        borderRadius: RADIUS.md,
+    },
+    btnTxt: { color: COLORS.gold, fontWeight: '800', fontSize: FONT.md, letterSpacing: 0.4 },
+});
+
+// ─── Filter Tab Bar ────────────────────────────────────────────────────────────
+const FilterBar = ({ active, onChange }) => {
+    const tabs = ['All', 'Bride', 'Groom'];
+    return (
+        <View style={FB.wrap}>
+            {tabs.map(t => (
+                <TouchableOpacity
+                    key={t}
+                    style={[FB.tab, active === t && FB.tabActive]}
+                    onPress={() => onChange(t)}
+                    activeOpacity={0.7}
+                >
+                    <Text style={[FB.tabTxt, active === t && FB.tabTxtActive]}>{t}</Text>
+                </TouchableOpacity>
+            ))}
+        </View>
+    );
+};
+const FB = StyleSheet.create({
+    wrap: {
+        flexDirection: 'row',
+        backgroundColor: COLORS.bgCard,
+        paddingHorizontal: 14,
+        paddingVertical: 10,
+        gap: 8,
+        borderBottomWidth: 0.5,
+        borderBottomColor: COLORS.border,
+    },
+    tab: {
+        flex: 1, alignItems: 'center',
+        paddingVertical: 8,
+        borderRadius: RADIUS.sm,
+        backgroundColor: COLORS.bg,
+        borderWidth: 0.5,
+        borderColor: COLORS.border,
+    },
+    tabActive: {
+        backgroundColor: COLORS.navy,
+        borderColor: COLORS.navy,
+    },
+    tabTxt: { fontSize: FONT.sm, fontWeight: '600', color: COLORS.textSub },
+    tabTxtActive: { color: COLORS.gold, fontWeight: '800' },
+});
+
+// ─── Main Screen ───────────────────────────────────────────────────────────────
+export default function MemberListScreen({ navigation }) {
+
+    const [members, setMembers] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [refreshing, setRefreshing] = useState(false);
+    const [filter, setFilter] = useState('All');
+    const [myProfileImage, setMyProfileImage] = useState(null);
+
+    const fetchMembers = useCallback(async () => {
+        try {
+            const [token, userId] = await Promise.all([
+                AsyncStorage.getItem('userToken'),
+                AsyncStorage.getItem('matrimonyUserId'),
+            ]);
+            const res = await fetch(
+                `${BASE_URL}/api/view_profile/${userId}`,
+                { headers: { Accept: 'application/json', Authorization: `Bearer ${token}` } }
+            );
+            const result = await res.json();
+            console.log('[MemberList] API →', result);
+
+            if (result.status === true || result.success === true) {
+                const list =
+                    Array.isArray(result.data) ? result.data :
+                        Array.isArray(result.profiles) ? result.profiles :
+                            Array.isArray(result.matches) ? result.matches :
+                                Array.isArray(result) ? result : [];
+                setMembers(list);
+            } else {
+                Alert.alert('Error', result.message || 'Could not load profiles');
+            }
+        } catch (e) {
+            console.error('[MemberList] Error:', e);
+            Alert.alert('Network Error', e.message);
+        } finally {
+            setLoading(false);
+            setRefreshing(false);
+        }
+    }, []);
+    useEffect(() => {
+        loadMyProfile();
+        fetchMembers();
+    }, []);
+    const loadMyProfile = async () => {
+        try {
+            const stored = await AsyncStorage.getItem('profileData');
+
+            if (stored) {
+                const profile = JSON.parse(stored);
+                setMyProfileImage(profile?.profile_image);
+            }
+        } catch (e) {
+            console.log('Profile image error:', e);
+        }
+    };
+    useFocusEffect(useCallback(() => { fetchMembers(); }, [fetchMembers]));
+
+    const onRefresh = () => { setRefreshing(true); fetchMembers(); };
+
+    const filtered = filter === 'All' ? members : members.filter(m => {
+        const g = (m.gender || '').toLowerCase();
+        return filter === 'Groom' ? g === 'male' : g === 'female';
+    });
+
+   const handleViewProfile = useCallback((item) => {
+    navigation.navigate('ViewProfile', {
+        profileId: item?.id,
+        profileImage: item?.profile_image
+            ? resolveImage(item.profile_image)
+            : myProfileImage,
+        fullName: item?.full_name,
+        age: calcAge(item?.date_of_birth),
+        location: item?.current_location,
+    });
+}, [myProfileImage]);
+
+    const handleViewMatch = useCallback((item) =>
+        navigation.navigate('Matches', { memberData: item }), []);
+    const handleUpdateProfile = useCallback((item) =>
+        navigation.navigate('EditProfile', { profileId: item.id, profileData: item }), []);
+
+    return (
+        <SafeAreaView style={SCR.safe} edges={['top', 'bottom']}>
+            <StatusBar barStyle="light-content" backgroundColor={COLORS.navy} />
+
+            <HeaderBanner count={members.length} loading={loading} />
+            <FilterBar active={filter} onChange={setFilter} />
+
+            {loading ? (
+                <FlatList
+                    data={[1, 2, 3]}
+                    keyExtractor={(i) => String(i)}
+                    renderItem={() => <SkeletonCard />}
+                    contentContainerStyle={SCR.listPad}
+                    showsVerticalScrollIndicator={false}
+                />
+            ) : filtered.length === 0 ? (
+                <EmptyState onRetry={fetchMembers} />
+            ) : (
+                <FlatList
+                    data={filtered}
+                    keyExtractor={(item, idx) => String(item.user_id || item.id || idx)}
+                    renderItem={({ item, index }) => (
+                        <MemberCard
+                            item={item}
+                            index={index}
+                            myProfileImage={myProfileImage}
+                            onViewProfile={handleViewProfile}
+                            onViewMatch={handleViewMatch}
+                            onUpdateProfile={handleUpdateProfile}
+                        />
+                    )}
+                    contentContainerStyle={SCR.listPad}
+                    showsVerticalScrollIndicator={false}
+                    refreshControl={
+                        <RefreshControl
+                            refreshing={refreshing}
+                            onRefresh={onRefresh}
+                            tintColor={COLORS.gold}
+                            colors={[COLORS.gold]}
+                        />
+                    }
+                />
             )}
         </SafeAreaView>
     );
 }
 
-// ════════════════════════════════════════════════════════════════
-const styles = StyleSheet.create({
-
-    // ── Root & Scroll ──────────────────────────────────────────
-    root: {
-        flex: 1,
-        backgroundColor: IVORY,
-    },
-    scrollContent: {
-        paddingBottom: 48,
-    },
-
-    // ── Top Bar ────────────────────────────────────────────────
-    topbar: {
-        height: 60,
-        backgroundColor: '#FAF8F4',
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        paddingHorizontal: 20,
-        borderBottomWidth: 0.5,
-        borderBottomColor: GOLD_BORDER,
-    },
-    topbarLogo: {
-        fontSize: 20,
-        fontWeight: '700',
-        color: GOLD_MUTED,
-        fontFamily: Platform.OS === 'ios' ? 'Georgia' : 'serif',
-        letterSpacing: 0.3,
-    },
-    topbarLogoAccent: {
-        color: GOLD,
-    },
-    topbarIcons: {
-        flexDirection: 'row',
-        gap: 8,
-    },
-    iconBtn: {
-        width: 36,
-        height: 36,
-        borderRadius: 18,
-        backgroundColor: IVORY_CARD,
-        borderWidth: 0.5,
-        borderColor: GOLD_BORDER,
-        alignItems: 'center',
-        justifyContent: 'center',
-    },
-    iconEmoji: {
-        fontSize: 16,
-    },
-
-    // ── Hero Card ──────────────────────────────────────────────
-    heroWrap: {
-        margin: 16,
-        height: 440,
-        borderRadius: 22,
-        overflow: 'hidden',
-        position: 'relative',
-        backgroundColor: '#EAEAEA',
-    },
-    heroImage: {
-        width: '100%',
-        height: '100%',
-        resizeMode: 'cover',
-    },
-    heroScrim: {
-        position: 'absolute',
-        top: 0, left: 0, right: 0, bottom: 0,
-        // Simulated gradient using overlapping views
-        backgroundColor: 'transparent',
-    },
-    // We use two overlaid views to simulate a gradient scrim
-    // (LinearGradient requires expo-linear-gradient; keeping vanilla RN here)
-    verifiedBadge: {
-        position: 'absolute',
-        top: 16,
-        right: 16,
-        backgroundColor: GOLD,
-        paddingHorizontal: 12,
-        paddingVertical: 5,
-        borderRadius: 20,
-    },
-    verifiedBadgeText: {
-        fontSize: 11,
-        fontWeight: '700',
-        color: BROWN_TEXT,
-        letterSpacing: 0.8,
-    },
-    glassPanel: {
-        position: 'absolute',
-        bottom: 0,
-        left: 0,
-        right: 0,
-        paddingHorizontal: 20,
-        paddingTop: 28,
-        paddingBottom: 22,
-        backgroundColor: 'rgba(10,6,2,0.68)',
-    },
-    nameRow: {
-        flexDirection: 'row',
-        alignItems: 'baseline',
-        marginBottom: 5,
-    },
-    heroName: {
-        fontSize: 26,
-        fontWeight: '700',
-        color: WHITE,
-        fontFamily: Platform.OS === 'ios' ? 'Georgia' : 'serif',
-        letterSpacing: 0.2,
-    },
-    heroAge: {
-        fontSize: 18,
-        color: 'rgba(255,255,255,0.65)',
-        marginLeft: 4,
-    },
-    locationRow: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        marginBottom: 12,
-        gap: 4,
-    },
-    locationIcon: {
-        fontSize: 13,
-    },
-    locationText: {
-        fontSize: 13,
-        color: 'rgba(255,255,255,0.65)',
-    },
-    tagRow: {
-        flexDirection: 'row',
-        gap: 8,
-        flexWrap: 'wrap',
-        marginBottom: 18,
-    },
-    tag: {
-        backgroundColor: TAG_BG,
-        borderWidth: 0.5,
-        borderColor: TAG_BORDER,
-        borderRadius: 20,
-        paddingHorizontal: 12,
-        paddingVertical: 5,
-    },
-    tagText: {
-        fontSize: 12,
-        color: 'rgba(255,255,255,0.88)',
-        fontWeight: '500',
-    },
-    ctaRow: {
-        flexDirection: 'row',
-        gap: 10,
-        alignItems: 'center',
-    },
-    btnPrimary: {
-        flex: 1,
-        backgroundColor: GOLD,
-        borderRadius: 25,
-        paddingVertical: 14,
-        alignItems: 'center',
-        justifyContent: 'center',
-    },
-    btnPrimaryText: {
-        color: BROWN_TEXT,
-        fontSize: 14,
-        fontWeight: '700',
-        letterSpacing: 0.3,
-    },
-    btnGhost: {
-        width: 46,
-        height: 46,
-        borderRadius: 23,
-        backgroundColor: GHOST_BG,
-        borderWidth: 0.5,
-        borderColor: GHOST_BORDER,
-        alignItems: 'center',
-        justifyContent: 'center',
-    },
-    btnGhostIcon: {
-        fontSize: 18,
-        color: WHITE,
-    },
-
-    // ── Profile Completeness ───────────────────────────────────
-    completeCard: {
-        marginHorizontal: 16,
-        marginTop: 4,
-        backgroundColor: IVORY_CARD,
-        borderWidth: 0.5,
-        borderColor: GOLD_BORDER,
-        borderRadius: 14,
-        padding: 14,
-    },
-    completeHeader: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        marginBottom: 8,
-    },
-    completeLabel: {
-        fontSize: 12,
-        color: GOLD_MUTED,
-        fontWeight: '600',
-    },
-    completePercent: {
-        fontSize: 12,
-        color: GOLD,
-        fontWeight: '700',
-    },
-    barTrack: {
-        height: 5,
-        backgroundColor: '#EDE3D0',
-        borderRadius: 3,
-        overflow: 'hidden',
-    },
-    barFill: {
-        height: '100%',
-        width: '72%',
-        backgroundColor: GOLD,
-        borderRadius: 3,
-    },
-
-    // ── Section Header ─────────────────────────────────────────
-    sectionHeader: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        paddingHorizontal: 18,
-        paddingTop: 22,
-        paddingBottom: 12,
-    },
-    sectionTitle: {
-        fontSize: 16,
-        fontWeight: '700',
-        color: '#5C3D0A',
-        fontFamily: Platform.OS === 'ios' ? 'Georgia' : 'serif',
-    },
-    sectionLink: {
-        fontSize: 12,
-        fontWeight: '600',
-        color: GOLD,
-    },
-
-    // ── Explore ────────────────────────────────────────────────
-    exploreRow: {
-        paddingHorizontal: 16,
-        gap: 14,
-        paddingBottom: 4,
-    },
-    exploreItem: {
-        alignItems: 'center',
-        gap: 7,
-        width: 64,
-    },
-    exploreCircle: {
-        width: 54,
-        height: 54,
-        borderRadius: 27,
-        backgroundColor: IVORY_CARD,
-        borderWidth: 0.5,
-        borderColor: GOLD_BORDER,
-        alignItems: 'center',
-        justifyContent: 'center',
-    },
-    exploreIcon: {
-        fontSize: 20,
-    },
-    exploreLabel: {
-        fontSize: 11,
-        color: BROWN_MUTED,
-        fontWeight: '500',
-        textAlign: 'center',
-    },
-
-    // ── Groom Cards ────────────────────────────────────────────
-    groomsRow: {
-        paddingHorizontal: 16,
-        gap: 14,
-        paddingBottom: 4,
-    },
-    groomCard: {
-        width: width * 0.52,
-        backgroundColor: WHITE,
-        borderRadius: 18,
-        overflow: 'hidden',
-        borderWidth: 0.5,
-        borderColor: GOLD_BORDER,
-    },
-    groomImage: {
-        width: '100%',
-        height: 185,
-        resizeMode: 'cover',
-    },
-    compatPill: {
-        position: 'absolute',
-        top: 10,
-        left: 10,
-        backgroundColor: 'rgba(201,168,76,0.92)',
-        paddingHorizontal: 9,
-        paddingVertical: 3,
-        borderRadius: 12,
-    },
-    compatPillText: {
-        fontSize: 10,
-        fontWeight: '700',
-        color: BROWN_TEXT,
-    },
-    groomBody: {
-        padding: 12,
-        alignItems: 'center',
-    },
-    groomName: {
-        fontSize: 14,
-        fontWeight: '700',
-        color: BROWN_TEXT,
-        fontFamily: Platform.OS === 'ios' ? 'Georgia' : 'serif',
-        marginBottom: 3,
-        textAlign: 'center',
-    },
-    groomMeta: {
-        fontSize: 11,
-        color: BROWN_META,
-        textAlign: 'center',
-        lineHeight: 16,
-        marginBottom: 12,
-    },
-    connectBtn: {
-        width: '100%',
-        borderWidth: 0.5,
-        borderColor: GOLD,
-        borderRadius: 20,
-        paddingVertical: 8,
-        alignItems: 'center',
-    },
-    connectBtnText: {
-        fontSize: 11,
-        fontWeight: '700',
-        color: GOLD_MUTED,
-        letterSpacing: 0.6,
-    },
-
-    // ── Elite Card ─────────────────────────────────────────────
-    eliteCard: {
-        marginHorizontal: 16,
-        marginBottom: 8,
-        borderRadius: 20,
-        backgroundColor: DARK_CARD,
-        padding: 24,
-        overflow: 'hidden',
-        position: 'relative',
-    },
-    eliteOrb1: {
-        position: 'absolute',
-        top: -30,
-        right: -30,
-        width: 120,
-        height: 120,
-        borderRadius: 60,
-        backgroundColor: 'rgba(201,168,76,0.07)',
-    },
-    eliteOrb2: {
-        position: 'absolute',
-        bottom: -20,
-        left: 20,
-        width: 80,
-        height: 80,
-        borderRadius: 40,
-        backgroundColor: 'rgba(201,168,76,0.05)',
-    },
-    eliteHeadRow: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 12,
-        marginBottom: 10,
-    },
-    eliteIconBox: {
-        width: 38,
-        height: 38,
-        borderRadius: 19,
-        backgroundColor: 'rgba(201,168,76,0.15)',
-        borderWidth: 0.5,
-        borderColor: 'rgba(201,168,76,0.40)',
-        alignItems: 'center',
-        justifyContent: 'center',
-    },
-    eliteIconEmoji: {
-        fontSize: 18,
-    },
-    eliteTitle: {
-        fontSize: 20,
-        fontWeight: '700',
-        color: GOLD_LIGHT,
-        fontFamily: Platform.OS === 'ios' ? 'Georgia' : 'serif',
-    },
-    eliteSub: {
-        fontSize: 12,
-        color: 'rgba(245,230,192,0.55)',
-        lineHeight: 19,
-        marginBottom: 18,
-    },
-    elitePerks: {
-        gap: 8,
-        marginBottom: 22,
-    },
-    perkRow: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 10,
-    },
-    perkDot: {
-        width: 5,
-        height: 5,
-        borderRadius: 2.5,
-        backgroundColor: GOLD,
-        flexShrink: 0,
-    },
-    perkText: {
-        fontSize: 12,
-        color: 'rgba(245,230,192,0.75)',
-        lineHeight: 18,
-    },
-    eliteBtn: {
-        backgroundColor: GOLD,
-        borderRadius: 25,
-        paddingVertical: 14,
-        alignItems: 'center',
-    },
-    eliteBtnText: {
-        color: BROWN_TEXT,
-        fontSize: 14,
-        fontWeight: '700',
-        letterSpacing: 0.3,
-    },
-    overlay: {
-        position: 'absolute',
-        top: 0,
-        left: 0,
-        right: 0,
-        bottom: 0,
-        backgroundColor: 'rgba(0,0,0,0.4)',
-    },
-
-    sideMenu: {
-        position: 'absolute',
-        top: 80,
-        right: 15,
-        width: 180,
-        backgroundColor: '#FFF',
-        borderRadius: 12,
-        elevation: 10,
-        paddingVertical: 8,
-    },
-
-    menuItem: {
-        paddingVertical: 15,
-        paddingHorizontal: 16,
-    },
-
-    menuText: {
-        fontSize: 16,
-        color: '#333',
-        fontWeight: '600',
-    },
+const SCR = StyleSheet.create({
+    safe: { flex: 1, backgroundColor: COLORS.bg },
+    listPad: { padding: 14, paddingBottom: 36 },
 });

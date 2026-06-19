@@ -32,6 +32,9 @@ import SearchScreen from '../screens/SearchScreen';
 import whoislikescreen from '../screens/whoislikescreen';
 import Memberlistscreen from '../screens/Memberlistscreen';
 import Galleryscreen from '../screens/Galleryscreen';
+import Allimages from '../screens/Allimages';
+import requesthistory from '../screens/requesthistory';
+import receivehistory from '../screens/receivehistory';
 const Stack = createNativeStackNavigator(); 
 
 export default function AppNavigator() {
@@ -84,6 +87,9 @@ export default function AppNavigator() {
                 <Stack.Screen name="member" component={Memberlistscreen} />
 
                 <Stack.Screen name="Gallery" component={Galleryscreen } />
+                 <Stack.Screen name="ViewImages" component={Allimages } />
+                   <Stack.Screen name="req" component={requesthistory } />
+                     <Stack.Screen name="rec" component={receivehistory } />
             </Stack.Navigator>
         </NavigationContainer>
     );

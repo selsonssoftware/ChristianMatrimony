@@ -5,7 +5,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import {
     View, Text, TouchableOpacity, ScrollView, StyleSheet,
-    SafeAreaView, StatusBar, TextInput, Platform,Alert
+    SafeAreaView, StatusBar, TextInput, Platform, Alert
 } from 'react-native';
 
 const AGE_RANGES = ['18-24', '25-29', '30-34', '35-40', '40+'];
@@ -31,9 +31,15 @@ export default function PartnerPreferencesScreen({ navigation }) {
     };
 
     const handleContinue = async () => {
+
+        console.log('STEP 1');
+
+        if (!validate()) return;
+
         if (!validate()) return;
 
         const userId = await AsyncStorage.getItem('user_id');
+        console.log('STEP 2 USER ID =', userId);
 
         if (!userId) {
             Alert.alert('Error', 'User ID not found');
@@ -48,7 +54,7 @@ export default function PartnerPreferencesScreen({ navigation }) {
             ageFrom = splitAge[0];
             ageTo = splitAge[1] || splitAge[0].replace('+', '');
         }
-
+        console.log('STEP 3 saveProfileData =', typeof saveProfileData);
         await saveProfileData({
             user_id: userId,   // add this
 
@@ -60,7 +66,7 @@ export default function PartnerPreferencesScreen({ navigation }) {
             denomination: denomination,
             preferred_location: location,
         });
-
+        console.log('STEP 4 Navigate');
         navigation.navigate('ReviewProfile');
     };
 

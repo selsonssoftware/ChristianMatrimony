@@ -99,8 +99,8 @@ const MENU_ITEMS = [
   { label: 'My Shortlist', icon: '☆', screen: 'Shortlist', badge: null },
 ];
 const MENU_ITEMS2 = [
-  { label: 'Interests Sent', icon: '➤', screen: 'InterestsSent', badge: null },
-  { label: 'Interests Received', icon: '📥', screen: 'InterestsReceived', badge: '3' },
+  { label: 'Interests Sent', icon: '➤', screen: 'req', badge: null },
+  { label: 'Interests Received', icon: '📥', screen: 'rec', badge: '3' },
 ];
 const MENU_ITEMS3 = [
   { label: 'Settings', icon: '⚙', screen: null, badge: null },
@@ -268,27 +268,42 @@ function HomeScreenInner({ navigation }) {
       const token = await AsyncStorage.getItem('userToken');
       const userId = await AsyncStorage.getItem('matrimonyUserId');
 
+      // ✅ Use the MEMBER LIST endpoint (same as MemberListScreen)
       const response = await fetch(
         `https://matrimony.gmworld.net/api/view_profile/${userId}`,
-        { headers: { Accept: 'application/json', Authorization: `Bearer ${token}` } }
+        {
+          headers: {
+            Accept: 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+        }
       );
+
       const result = await response.json();
+      console.log('[HomeScreen Spotlight] API Response:', result);
 
-      const profiles =
-        Array.isArray(result.data) ? result.data :
-          Array.isArray(result.profiles) ? result.profiles :
-            Array.isArray(result.matches) ? result.matches : [];
-
-      if ((result.status === true || result.success === true) && profiles.length > 0) {
-        setSpotlightProfiles(profiles);
-      } else {
-        setSpotlightProfiles(FALLBACK_SPOTLIGHT);
+      // ✅ Extract actual member array
+      let memberList = [];
+      if (Array.isArray(result.data)) {
+        memberList = result.data;
+      } else if (Array.isArray(result.profiles)) {
+        memberList = result.profiles;
+      } else if (Array.isArray(result.matches)) {
+        memberList = result.matches;
       }
+
+      // ✅ Take top 3 members for spotlight (most compatible)
+      const topMatches = memberList
+        .sort((a, b) => (b.match_percentage || 0) - (a.match_percentage || 0))
+        .slice(0, 3);
+
+      setSpotlightProfiles(topMatches.length > 0 ? topMatches : []);
       spotIdxRef.current = 0;
       setSpotIdx(0);
+
     } catch (error) {
-      console.log('Spotlight Error:', error);
-      setSpotlightProfiles(FALLBACK_SPOTLIGHT);
+      console.log('[HomeScreen Spotlight] Error:', error);
+      setSpotlightProfiles([]); // ✅ Empty array instead of fake data
     } finally {
       setLoadingSpotlight(false);
     }
@@ -589,7 +604,7 @@ function HomeScreenInner({ navigation }) {
                   <View style={styles.sectionAccent} />
                   <Text style={styles.sectionTitle}>Spotlight Matches</Text>
                 </View>
-                <TouchableOpacity onPress={() => navigation.navigate('Matches')} activeOpacity={0.7}>
+                <TouchableOpacity onPress={() => navigation.navigate('ViewProfile')} activeOpacity={0.7}>
                   <Text style={styles.viewAll}>View all →</Text>
                 </TouchableOpacity>
               </View>
@@ -845,12 +860,22 @@ function PromoSlide({ item, index, scrollX }) {
   const inputRange = [(index - 1) * SLIDER_SNAP, index * SLIDER_SNAP, (index + 1) * SLIDER_SNAP];
   const scale = scrollX.interpolate({ inputRange, outputRange: [0.93, 1, 0.93], extrapolate: 'clamp' });
   const translateY = scrollX.interpolate({ inputRange, outputRange: [10, 0, 10], extrapolate: 'clamp' });
+
   return (
     <Animated.View style={[styles.sliderCard, { transform: [{ scale }, { translateY }] }]}>
-      <Image source={{ uri: `https://matrimony.gmworld.net/${item.slider_image}` }} style={styles.sliderImage} />
+      <Image
+        source={{
+          uri: `https://${item.slider_image}` // ✅ FIX
+        }}
+        style={styles.sliderImage}
+      />
       <View style={styles.sliderOverlay}>
-        <Text style={styles.sliderHeading} numberOfLines={1}>{item.slider_heading}</Text>
-        <Text style={styles.sliderContent} numberOfLines={2}>{item.slider_content}</Text>
+        <Text style={styles.sliderHeading} numberOfLines={1}>
+          {item.slider_heading}
+        </Text>
+        <Text style={styles.sliderContent} numberOfLines={2}>
+          {item.slider_content}
+        </Text>
       </View>
     </Animated.View>
   );
@@ -883,8 +908,8 @@ function SpotlightCard({ item, index, scrollX, navigation }) {
         <Animated.View style={[styles.spotCardInner, { transform: [{ scale: pressScale }] }]}>
           <Image
             source={{
-              uri: item.profile_image
-                ? `https://matrimony.gmworld.net/storage/${item.profile_image}`
+              uri: item.image
+                ? `https://${item.image}`
                 : item.image || 'https://via.placeholder.com/300',
             }}
             style={styles.spotImg}
@@ -896,7 +921,9 @@ function SpotlightCard({ item, index, scrollX, navigation }) {
             <View style={styles.spotMeterTrack}>
               <Animated.View style={[styles.spotMeterFill, { width: meterWidth }]} />
             </View>
-            <Text style={styles.spotName}>{item.full_name || item.name}</Text>
+            <Text style={styles.spotName}>
+              {item.name || item.full_name}
+            </Text>
             <Text style={styles.spotMeta}>{item.current_location || 'India'}</Text>
             <View style={styles.spotTagRow}>
               {item.denomination ? (

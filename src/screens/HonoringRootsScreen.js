@@ -45,33 +45,33 @@ export default function HonoringRootsScreen({ navigation }) {
         return Object.keys(e).length === 0;
     };
 
-    const handleContinue = async () => {
-        if (!validate()) return;
+ const handleContinue = async () => {
+    if (!validate()) return;
 
-        const userId = await AsyncStorage.getItem('user_id');
+    const userId = await AsyncStorage.getItem('user_id');
 
-        if (!userId) {
-            Alert.alert('Error', 'User ID not found');
-            return;
-        }
+    if (!userId) {
+        Alert.alert('Error', 'User ID not found');
+        return;
+    }
 
-        await saveProfileData({
-            user_id: userId,   // add this
+    await saveProfileData({
+        user_id: userId,
 
-            father_name: fatherName,
-            mother_name: motherName,
-            parents_occupation: parentOccupation,
-            brothers_count: brothers,
-            sisters_count: sisters,
-            married_brothers_count: brotherMarried ? 1 : 0,
-            married_sisters_count: sisterMarried ? 1 : 0,
-            partner_values: partnerValues,
-            house_type: house,
-            address: address,
-        });
+        father_name: fatherName,
+        mother_name: motherName,
+        parents_occupation: parentOccupation,
+        brothers_count: brothers,
+        sisters_count: sisters,
+        married_brothers_count: brotherMarried ? 1 : 0,
+        married_sisters_count: sisterMarried ? 1 : 0,
+        partner_values: partnerValues,
+        house_type: house,
+        address: address,
+    });
 
-        navigation.navigate('Lifestyle');
-    };
+    navigation.navigate('Lifestyle');
+};
     const handleSkip = () => navigation?.navigate('Lifestyle');
 
     const SiblingCountPicker = ({ value, onChange, error, clearError }) => (

@@ -1,9 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { launchImageLibrary } from 'react-native-image-picker';
 import {
     View, Text, TouchableOpacity, ScrollView,
-    StyleSheet, StatusBar, Alert, ActivityIndicator
+    StyleSheet, StatusBar, Alert, ActivityIndicator, Image,
 } from 'react-native';
 import { getProfileData } from '../utils/profileStorage';
 import {
@@ -74,6 +75,7 @@ export default function ReviewProfileScreen({ navigation }) {
     const [agreed, setAgreed] = useState(false);
     const [profile, setProfile] = useState(null);
     const [submitting, setSubmitting] = useState(false);
+    const [profileImage, setProfileImage] = useState(null);
     const insets = useSafeAreaInsets();
 
     useEffect(() => {
@@ -82,7 +84,18 @@ export default function ReviewProfileScreen({ navigation }) {
 
     const loadProfile = async () => {
         const data = await getProfileData();
+        console.log('Loaded Profile:', data);
         setProfile(data);
+    };
+    const pickImage = async () => {
+        const result = await launchImageLibrary({
+            mediaType: 'photo',
+            quality: 0.8,
+        });
+
+        if (result.assets && result.assets.length > 0) {
+            setProfileImage(result.assets[0]);
+        }
     };
 
     const buildPayload = (p, userId) => {
@@ -129,8 +142,13 @@ export default function ReviewProfileScreen({ navigation }) {
             partner_required: p.partner_required ?? 1,
             preferred_age_from: numOrNull(p.preferred_age_from),
             preferred_age_to: numOrNull(p.preferred_age_to),
-            preferred_height_from: heightToCm(p.preferred_height_from) || numOrNull(p.preferred_height_from),
-            preferred_height_to: heightToCm(p.preferred_height_to) || numOrNull(p.preferred_height_to),
+            preferred_height_from:
+                heightToCm(p.preferred_height_from) ||
+                numOrNull(p.preferred_height_from) || 0,
+
+            preferred_height_to:
+                heightToCm(p.preferred_height_to) ||
+                numOrNull(p.preferred_height_to) || 0,
             denomination: p.denomination || '',
             preferred_location: p.preferred_location || '',
 
@@ -155,21 +173,33 @@ export default function ReviewProfileScreen({ navigation }) {
         try {
             const userId = await AsyncStorage.getItem('user_id');
             const payload = buildPayload(profile, userId);
+            const formData = new FormData();
+
+            Object.keys(payload).forEach(key => {
+                formData.append(key, payload[key]);
+            });
+
+            if (profileImage) {
+                formData.append('profile_photo', {
+                    uri: profileImage.uri,
+                    type: profileImage.type || 'image/jpeg',
+                    name: profileImage.fileName || 'profile.jpg',
+                });
+            }
             const token = await AsyncStorage.getItem('userToken');
             console.log("USER_ID:", userId);
             console.log("TOKEN:", token);
             console.log('Final Payload:', payload);
 
             const response = await fetch(
-                'https://matrimony.gmworld.net/api/profile_create',
+                `https://matrimony.gmworld.net/api/profile_update/${userId}`,
                 {
                     method: 'POST',
                     headers: {
-                        'Content-Type': 'application/json',
-                        'Accept': 'application/json',
-                        'Authorization': `Bearer ${token}`,
+                        Accept: 'application/json',
+                        Authorization: `Bearer ${token}`,
                     },
-                    body: JSON.stringify(payload),
+                    body: formData,
                 }
             );
 
@@ -181,7 +211,19 @@ export default function ReviewProfileScreen({ navigation }) {
                     await AsyncStorage.setItem('matrimonyUserId', String(result.user_id));
                 }
                 if (result.data) {
-                    await AsyncStorage.setItem('profileData', JSON.stringify(result.data));
+                    const mergedProfile = {
+                        ...profile,
+                        ...result.data,
+                        profile_photo:
+                            result.data.profile_photo || profile.profile_photo,
+                    };
+
+                    await AsyncStorage.setItem(
+                        'profileData',
+                        JSON.stringify(mergedProfile)
+                    );
+
+                    console.log('Saved Profile:', mergedProfile);
                 }
                 navigation.replace('Home');
             } else {
@@ -227,6 +269,19 @@ export default function ReviewProfileScreen({ navigation }) {
                 <Text style={styles.pageSubtitle}>
                     Double-check your details before we share your profile with the community.
                 </Text>
+                <TouchableOpacity
+                    style={styles.imageUploadBox}
+                    onPress={pickImage}
+                >
+                    {profileImage ? (
+                        <Image
+                            source={{ uri: profileImage.uri }}
+                            style={styles.reviewProfileImage}
+                        />
+                    ) : (
+                        <Text>Select Profile Photo</Text>
+                    )}
+                </TouchableOpacity>
 
                 <View style={styles.banner}>
                     <View style={styles.bannerIcon}>
@@ -396,6 +451,19 @@ const styles = StyleSheet.create({
         backgroundColor: '#fff', borderRadius: 12, padding: 14,
         marginBottom: 8, borderWidth: 1.5, borderColor: '#EEE8DC',
     },
+    imageUploadBox: {
+        alignItems: 'center',
+        justifyContent: 'center',
+        marginBottom: 20,
+    },
+
+    reviewProfileImage: {
+        width: 120,
+        height: 120,
+        borderRadius: 60,
+        borderWidth: 3,
+        borderColor: '#C9A84C',
+    },
     checkbox: {
         width: 22, height: 22, borderRadius: 5,
         borderWidth: 2, borderColor: '#C9A84C',
@@ -404,6 +472,12 @@ const styles = StyleSheet.create({
     checkboxChecked: { backgroundColor: '#C9A84C' },
     checkboxTick: { color: '#fff', fontSize: 13, fontWeight: '700' },
     agreeText: { flex: 1, fontSize: 12, color: '#555', lineHeight: 18 },
+    profileImageContainer: {
+        alignItems: 'center',
+        marginBottom: 20,
+    },
+
+
     footer: {
         position: 'absolute', bottom: 0, left: 0, right: 0,
         backgroundColor: '#FAF7F2', paddingHorizontal: 20, paddingTop: 10,

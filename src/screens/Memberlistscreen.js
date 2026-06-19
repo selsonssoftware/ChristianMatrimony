@@ -313,10 +313,19 @@ const RippleBtn = ({ label, icon, variant = 'outline', onPress, flex = 1 }) => {
 };
 
 // ─── Member Card ───────────────────────────────────────────────────────────────
-const MemberCard = React.memo(({ item, onViewProfile, onViewMatch, onUpdateProfile, index }) => {
+const MemberCard = React.memo(({
+    item,
+    onViewProfile,
+    onViewMatch,
+    onUpdateProfile,
+    index,
+    myProfileImage
+}) => {
     const age = calcAge(item.date_of_birth);
     const height = cmToFeet(item.height);
-    const imgUri = resolveImage(item.profile_image);
+    const imgUri = item.profile_image
+        ? resolveImage(item.profile_image)
+        : myProfileImage;
     const initials = getInitials(item?.full_name ?? '');
     const uid = item.user_id || item.id || '';
     const isGroom = item.gender === 'male' || item.gender === 'Male';
@@ -342,9 +351,10 @@ const MemberCard = React.memo(({ item, onViewProfile, onViewMatch, onUpdateProfi
 
     return (
         <Animated.View style={[C.cardWrap, { transform: [{ translateY }], opacity }]}>
-
+           
             {/* ── Header Band ── */}
             <View style={C.headerBand}>
+
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                     {/* Gender badge */}
                     <View style={[C.genderDot, { backgroundColor: isGroom ? '#1B55E2' : '#B5327A' }]} />
@@ -372,16 +382,26 @@ const MemberCard = React.memo(({ item, onViewProfile, onViewMatch, onUpdateProfi
             {/* ── Main Content ── */}
             <View style={C.mainRow}>
                 <View style={C.avatarCol}>
-                    <Avatar uri={imgUri} initials={initials} size={88} />
+                    <Avatar
+                        uri={imgUri}
+                        initials={initials}
+                        size={90}
+                    />
+
                     {item.marital_status && (
                         <View style={C.maritalBadge}>
-                            <Text style={C.maritalTxt} numberOfLines={1}>{item.marital_status}</Text>
+                            <Text style={C.maritalTxt}>
+                                {item.marital_status}
+                            </Text>
                         </View>
                     )}
                 </View>
 
                 <View style={{ flex: 1 }}>
                     <Text style={C.name} numberOfLines={1}>{item.full_name || '—'}</Text>
+                    <Text style={C.profileCode}>
+                        Profile ID : #{uid}
+                    </Text>
 
                     {/* Quick Vitals Row */}
                     <View style={C.tagWrap}>
@@ -468,6 +488,12 @@ const C = StyleSheet.create({
         paddingHorizontal: 14,
         paddingVertical: 10,
     },
+    profileCode: {
+        fontSize: 12,
+        color: COLORS.goldDeep,
+        fontWeight: '700',
+        marginBottom: 6,
+    },
     genderDot: { width: 8, height: 8, borderRadius: 4 },
     headerUID: { fontSize: FONT.sm, color: COLORS.gold, fontWeight: '800', letterSpacing: 0.6 },
     genderPill: {
@@ -489,7 +515,9 @@ const C = StyleSheet.create({
         minWidth: 42, alignItems: 'center',
     },
     matchBubbleTxt: { fontSize: FONT.sm, fontWeight: '900' },
-    mainRow: { flexDirection: 'row', gap: 12, padding: 14, paddingBottom: 8 },
+    mainRow: {
+        padding: 14,
+    },
     avatarCol: { alignItems: 'center', gap: 6 },
     maritalBadge: {
         backgroundColor: COLORS.navy,
@@ -705,6 +733,7 @@ export default function MemberListScreen({ navigation }) {
     const [loading, setLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
     const [filter, setFilter] = useState('All');
+    const [myProfileImage, setMyProfileImage] = useState(null);
 
     const fetchMembers = useCallback(async () => {
         try {
@@ -737,8 +766,22 @@ export default function MemberListScreen({ navigation }) {
             setRefreshing(false);
         }
     }, []);
+    useEffect(() => {
+        loadMyProfile();
+        fetchMembers();
+    }, []);
+    const loadMyProfile = async () => {
+        try {
+            const stored = await AsyncStorage.getItem('profileData');
 
-    useEffect(() => { fetchMembers(); }, []);
+            if (stored) {
+                const profile = JSON.parse(stored);
+                setMyProfileImage(profile?.profile_image);
+            }
+        } catch (e) {
+            console.log('Profile image error:', e);
+        }
+    };
     useFocusEffect(useCallback(() => { fetchMembers(); }, [fetchMembers]));
 
     const onRefresh = () => { setRefreshing(true); fetchMembers(); };
@@ -748,8 +791,18 @@ export default function MemberListScreen({ navigation }) {
         return filter === 'Groom' ? g === 'male' : g === 'female';
     });
 
-    const handleViewProfile = useCallback((item) =>
-        navigation.navigate('ViewProfile', { profileId: item.id, profileData: item }), []);
+   const handleViewProfile = useCallback((item) => {
+    navigation.navigate('ViewProfile', {
+        profileId: item?.id,
+        profileImage: item?.profile_image
+            ? resolveImage(item.profile_image)
+            : myProfileImage,
+        fullName: item?.full_name,
+        age: calcAge(item?.date_of_birth),
+        location: item?.current_location,
+    });
+}, [myProfileImage]);
+
     const handleViewMatch = useCallback((item) =>
         navigation.navigate('Matches', { memberData: item }), []);
     const handleUpdateProfile = useCallback((item) =>
@@ -780,6 +833,7 @@ export default function MemberListScreen({ navigation }) {
                         <MemberCard
                             item={item}
                             index={index}
+                            myProfileImage={myProfileImage}
                             onViewProfile={handleViewProfile}
                             onViewMatch={handleViewMatch}
                             onUpdateProfile={handleUpdateProfile}
